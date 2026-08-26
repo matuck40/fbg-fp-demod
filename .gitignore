@@ -29,3 +29,9 @@ data/
 
 # Local working file, not part of the project
 CLAUDE.md
+
+# Local reference material: original MATLAB source and sample data, never published
+reference/
+
+# Working design documents
+docs/superpowers/
