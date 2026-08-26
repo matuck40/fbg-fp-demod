@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Notebooks
+.ipynb_checkpoints/
+
+# OS and editors
+.DS_Store
+.vscode/
+.idea/
+
+# Measured data never belongs here. This repository demonstrates the method on
+# synthetic spectra generated at run time by its own code.
+*.mat
+*.tdms
+*.h5
+*.hdf5
+data/
+
+# Local working file, not part of the project
+CLAUDE.md
