@@ -36,5 +36,5 @@ reference/
 # Working design documents
 docs/superpowers/
 
-# Generated demo output
-demo.png
+# Generated demo output (a committed snapshot lives in docs/)
+/demo.png
