@@ -1,10 +1,10 @@
-"""Generate a synthetic multiplexed spectrum and demodulate one frame.
+"""Generate a synthetic multiplexed sequence, demodulate it, and plot.
 
-Run ``python demo.py``: it builds a Fabry-Perot + FBG spectrum on the
-interrogator's wavelength grid, isolates the fringe with the FFT band-pass,
-locates its valleys, fits a Gaussian to the crest bracketing the reference,
-and saves the figure to ``demo.png``. Trajectory tracking across a sequence
-arrives in a later phase.
+Run ``python demo.py``: it builds Fabry-Perot + FBG spectra on the
+interrogator's wavelength grid, demodulates one frame step by step (FFT
+band-pass, valley detection, Gaussian crest fit), tracks the fringe through
+a noisy drifting sequence, and saves the figure to ``demo.png`` — true
+trajectory against recovered.
 """
 
 import matplotlib
@@ -13,7 +13,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-from fbgfp import fit, peaks, synth
+from fbgfp import fit, peaks, synth, track
 
 OPD_NM = 87_000.0
 BAND = (0.030, 0.042)  # cycles/nm
@@ -77,15 +77,28 @@ def main():
     axes[1, 0].set_ylabel("Power (dB)")
     axes[1, 0].legend()
 
-    axes[1, 1].plot(seq.opd_nm, ".-")
-    axes[1, 1].set_title("Ground-truth cavity OPD trajectory (the tracker's target)")
+    result = track.track_fp(seq.spectra_db, wl, BAND, REFERENCE_NM)
+    recovered_pm = (result.corrected_nm - result.corrected_nm[0]) * 1e3
+    true_pm = result.corrected_nm[0] * (seq.opd_nm - seq.opd_nm[0]) / OPD_NM * 1e3
+    axes[1, 1].plot(true_pm, "-", label="true fringe shift (from OPD)")
+    axes[1, 1].plot(recovered_pm, ".", ms=4, label="recovered by tracking")
+    axes[1, 1].set_title("True vs recovered trajectory (0.2 dB noise, 0.5 dB drift)")
     axes[1, 1].set_xlabel("Frame")
-    axes[1, 1].set_ylabel("OPD (nm)")
+    axes[1, 1].set_ylabel("Wavelength shift (pm)")
+    axes[1, 1].legend()
+    axes[1, 1].annotate(
+        "systematic excursion = baseline drift leaking\n"
+        "into the pass band (bounded in the tests)",
+        xy=(0.98, 0.05), xycoords="axes fraction", ha="right", fontsize=8,
+        color="0.35",
+    )
 
     fig.savefig("demo.png", dpi=150)
     print("Wrote demo.png")
     print(f"Crest fitted at {crest.center:.4f} nm "
           f"(physical fringe maximum at {OPD_NM / 55.0:.4f} nm)")
+    rms_pm = np.sqrt(np.mean((recovered_pm - true_pm) ** 2))
+    print(f"Tracking error vs truth: {rms_pm:.1f} pm RMS over {len(true_pm)} frames")
 
 
 if __name__ == "__main__":
