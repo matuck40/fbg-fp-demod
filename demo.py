@@ -42,6 +42,8 @@ def main():
 
     # ...which the generator turns into spectra with noise and drift.
     wl = synth.wavelength_axis()
+    # The tracked crest: the fringe maximum of order 55 (87000/55 = 1581.8 nm),
+    # the one nearest the tracking reference. Converts wavelength shift to OPD.
     crest0 = OPD_NM / np.rint(OPD_NM / 1581.8)
     centers = np.tile(FBG_CENTERS_NM, (N_FRAMES, 1))
     centers[:, 0] += delta_fbg
@@ -111,6 +113,12 @@ def main():
     axes[1, 1].set_xlabel("Frame")
     axes[1, 1].set_ylabel("Temperature change (°C)")
     axes[1, 1].legend()
+    axes[1, 1].annotate(
+        "scatter = FBG fit jitter (~5 pm) over the\n"
+        "10.2 pm/°C sensitivity — the resolution floor",
+        xy=(0.98, 0.05), xycoords="axes fraction", ha="right", fontsize=8,
+        color="0.35",
+    )
 
     fig.savefig("demo.png", dpi=150)
     print("Wrote demo.png")
@@ -120,6 +128,7 @@ def main():
           f"(range {pressure_true.max():.1f} bar) over {N_FRAMES} frames")
     print(f"Temperature recovered to {rms_t:.2f} °C RMS "
           f"(range {temperature_true.max():.1f} °C)")
+    return rms_p, rms_t
 
 
 if __name__ == "__main__":
