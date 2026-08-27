@@ -41,8 +41,8 @@ def main():
     axes[0].set_ylabel("Power (dB)")
 
     zoom = (wl > 1546.0) & (wl < 1564.0)
-    axes[1].plot(wl[zoom], seq.spectra_db[0][zoom], lw=0.6, label="frame 0")
-    axes[1].plot(wl[zoom], seq.spectra_db[n_frames // 4][zoom], lw=0.6, label=f"frame {n_frames // 4}")
+    axes[1].plot(wl[zoom], seq.spectra_db[0, zoom], lw=0.6, label="frame 0")
+    axes[1].plot(wl[zoom], seq.spectra_db[n_frames // 4, zoom], lw=0.6, label=f"frame {n_frames // 4}")
     axes[1].set_title("Zoom near 1554 nm: fringe moves as the cavity OPD changes")
     axes[1].set_xlabel("Wavelength (nm)")
     axes[1].set_ylabel("Power (dB)")

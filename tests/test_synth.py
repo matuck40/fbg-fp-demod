@@ -58,6 +58,57 @@ def test_multiplexed_spectrum_carries_both_signatures():
     assert spectrum_db[far].max() - spectrum_db[far].min() > 1.0
 
 
+def test_multiplexing_adds_linear_power_not_db():
+    # Align a fringe maximum exactly on the FBG center (a grid point), with
+    # both signatures at the same level: the linear sum must rise by
+    # 10*log10((2+V)/(1+V)) over the fringe alone. Summing in dB instead
+    # would give a wildly different number.
+    wl = synth.wavelength_axis()
+    center = 1525.4
+    opd_nm = 87_000.0
+    visibility = 0.8
+    phase = -2.0 * np.pi * opd_nm / center
+
+    fp_only = synth.fp_spectrum(wl, opd_nm, visibility=visibility, phase_rad=phase)
+    both = synth.multiplexed_spectrum(
+        wl, opd_nm, [center], visibility=visibility, phase_rad=phase
+    )
+
+    at_center = np.argmin(np.abs(wl - center))
+    expected_rise = 10.0 * np.log10((2.0 + visibility) / (1.0 + visibility))
+    assert both[at_center] - fp_only[at_center] == pytest.approx(expected_rise, abs=1e-3)
+
+
+def test_fbg_width_at_half_maximum_matches_request():
+    fwhm_nm = 0.2
+    floor_db = -60.0
+    wl = synth.wavelength_axis(start_nm=1524.0, step_nm=0.001, n_points=2801)
+    spectrum_db = synth.fbg_spectrum(wl, [1525.4], fwhm_nm=fwhm_nm, floor_db=floor_db)
+
+    # Width is defined on the linear-power bump above the floor.
+    bump = 10.0 ** (spectrum_db / 10.0) - 10.0 ** (floor_db / 10.0)
+    above_half = wl[bump >= bump.max() / 2.0]
+    measured = above_half[-1] - above_half[0]
+    assert measured == pytest.approx(fwhm_nm, abs=0.005)
+
+
+def test_sequence_accepts_a_scalar_opd_as_one_frame():
+    wl = synth.wavelength_axis(n_points=2048)
+    seq = synth.simulate_sequence(wl, opd_nm=87_000.0)
+    assert seq.spectra_db.shape == (1, wl.size)
+    assert seq.opd_nm.shape == (1,)
+
+
+def test_sequence_rejects_one_dimensional_fbg_centers():
+    # A flat list of static centers is ambiguous with n_frames rows; requiring
+    # an explicit (n_frames, n_fbg) array keeps the stored truth unambiguous.
+    wl = synth.wavelength_axis(n_points=2048)
+    with pytest.raises(ValueError, match="tile"):
+        synth.simulate_sequence(
+            wl, opd_nm=np.full(3, 87_000.0), fbg_centers_nm=[1470.5, 1480.2, 1490.0]
+        )
+
+
 def test_sequence_returns_spectra_and_the_truth_that_made_them():
     wl = synth.wavelength_axis(n_points=4096)
     opd_nm = np.linspace(87_000.0, 87_050.0, 10)

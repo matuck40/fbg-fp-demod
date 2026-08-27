@@ -42,9 +42,8 @@ def _fp_linear(wavelength_nm, opd_nm, visibility, mean_level_db, phase_rad):
 
 def _fbg_linear(wavelength_nm, centers_nm, fwhm_nm, peak_level_db):
     sigma = fwhm_nm * _FWHM_TO_SIGMA
-    bumps = np.zeros_like(wavelength_nm)
-    for center in np.atleast_1d(centers_nm):
-        bumps += np.exp(-((wavelength_nm - center) ** 2) / (2.0 * sigma**2))
+    offsets = wavelength_nm - np.atleast_1d(centers_nm)[:, np.newaxis]
+    bumps = np.exp(-(offsets**2) / (2.0 * sigma**2)).sum(axis=0)
     return _to_linear(peak_level_db) * bumps
 
 
@@ -56,7 +55,11 @@ def fp_spectrum(
     mean_level_db=-35.0,
     phase_rad=0.0,
 ):
-    """Fabry-Perot fringe spectrum in dB for a cavity of the given OPD (nm)."""
+    """Fabry-Perot fringe spectrum in dB for a cavity of the given OPD (nm).
+
+    ``visibility`` must lie in [0, 1]; beyond 1 the modelled power would go
+    negative.
+    """
     return _to_db(_fp_linear(wavelength_nm, opd_nm, visibility, mean_level_db, phase_rad))
 
 
@@ -126,10 +129,15 @@ def simulate_sequence(
     below the fringe frequency) whose phase advances over the sequence.
     """
     wavelength_nm = np.asarray(wavelength_nm, dtype=float)
-    opd_nm = np.asarray(opd_nm, dtype=float)
+    opd_nm = np.atleast_1d(np.asarray(opd_nm, dtype=float))
     n_frames = opd_nm.size
     if fbg_centers_nm is not None:
         fbg_centers_nm = np.asarray(fbg_centers_nm, dtype=float)
+        if fbg_centers_nm.ndim != 2:
+            raise ValueError(
+                "fbg_centers_nm must be 2-d with shape (n_frames, n_fbg); "
+                "tile static centers across frames"
+            )
         if fbg_centers_nm.shape[0] != n_frames:
             raise ValueError("fbg_centers_nm must have one row per frame")
 
