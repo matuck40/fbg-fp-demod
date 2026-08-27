@@ -35,3 +35,6 @@ reference/
 
 # Working design documents
 docs/superpowers/
+
+# Generated demo output
+demo.png
