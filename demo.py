@@ -79,7 +79,7 @@ def main():
 
     result = track.track_fp(seq.spectra_db, wl, BAND, REFERENCE_NM)
     recovered_pm = (result.corrected_nm - result.corrected_nm[0]) * 1e3
-    true_pm = result.corrected_nm[0] * (seq.opd_nm - seq.opd_nm[0]) / OPD_NM * 1e3
+    true_pm = result.corrected_nm[0] * (seq.opd_nm - seq.opd_nm[0]) / seq.opd_nm[0] * 1e3
     axes[1, 1].plot(true_pm, "-", label="true fringe shift (from OPD)")
     axes[1, 1].plot(recovered_pm, ".", ms=4, label="recovered by tracking")
     axes[1, 1].set_title("True vs recovered trajectory (0.2 dB noise, 0.5 dB drift)")
@@ -95,8 +95,9 @@ def main():
 
     fig.savefig("demo.png", dpi=150)
     print("Wrote demo.png")
+    fringe_order = np.rint(OPD_NM / crest.center)
     print(f"Crest fitted at {crest.center:.4f} nm "
-          f"(physical fringe maximum at {OPD_NM / 55.0:.4f} nm)")
+          f"(physical fringe maximum at {OPD_NM / fringe_order:.4f} nm)")
     rms_pm = np.sqrt(np.mean((recovered_pm - true_pm) ** 2))
     print(f"Tracking error vs truth: {rms_pm:.1f} pm RMS over {len(true_pm)} frames")
 

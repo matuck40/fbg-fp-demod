@@ -40,7 +40,7 @@ def test_recovers_a_sinusoidal_trajectory_under_noise():
 
     assert result.hop_frames == ()
     recovered = result.corrected_nm - result.corrected_nm[0]
-    predicted = result.corrected_nm[0] * (opd - opd[0]) / OPD_NM
+    predicted = result.corrected_nm[0] * (opd - opd[0]) / opd[0]
     errors = np.abs(recovered - predicted)
     # Declared contract: 6% method compression plus 10 pm of noise jitter.
     assert np.all(errors <= 0.06 * np.abs(predicted) + 0.010)
@@ -62,7 +62,7 @@ def test_baseline_drift_bias_stays_within_the_declared_bound():
 
     assert result.hop_frames == ()
     recovered = result.corrected_nm - result.corrected_nm[0]
-    predicted = result.corrected_nm[0] * (opd - opd[0]) / OPD_NM
+    predicted = result.corrected_nm[0] * (opd - opd[0]) / opd[0]
     errors = np.abs(recovered - predicted)
     assert np.all(errors <= 0.06 * np.abs(predicted) + 0.250)
 
@@ -75,12 +75,16 @@ def test_hands_over_when_the_fringe_exits_the_right_edge():
     seq = synth.simulate_sequence(wl, opd_nm=opd)
     result = track.track_fp(seq.spectra_db, wl, BAND, REFERENCE_NM)
 
-    assert len(result.hop_frames) >= 1
+    # The hop is recorded at exactly the frame where the raw reading jumps.
+    raw_jump_frame = int(np.argmax(np.abs(np.diff(result.crest_nm)))) + 1
+    assert result.hop_frames == (raw_jump_frame,)
     # The raw reading jumps by about one fringe at the handover...
     assert np.abs(np.diff(result.crest_nm)).max() > 10.0
-    # ...and the corrected trajectory absorbs it.
-    assert np.abs(np.diff(result.corrected_nm)).max() < 1.0
-    total_predicted = result.corrected_nm[0] * d_opd / OPD_NM
+    # ...and the corrected trajectory absorbs it to within the declared
+    # per-hop systematic (~0.6 nm: the offset uses the locally measured,
+    # edge-distorted valley spacing).
+    assert np.abs(np.diff(result.corrected_nm)).max() < 0.8
+    total_predicted = result.corrected_nm[0] * d_opd / opd[0]
     total_recovered = result.corrected_nm[-1] - result.corrected_nm[0]
     assert total_recovered == pytest.approx(total_predicted, rel=0.08)
 
@@ -117,3 +121,30 @@ def test_tracks_fbg_centers_through_a_noisy_sequence():
 
     assert recovered.shape == (n_frames, 2)
     assert np.abs(recovered - centers).max() < 0.010  # 10 pm measured jitter
+
+
+def test_track_fbg_rejects_a_wandering_fit():
+    # Two peaks converging below the window width: the windowed fits start
+    # seeing each other and the centres drift away. The tracker must raise
+    # (naming the frame) rather than silently follow the wrong peak — the
+    # same contract fit_fringe_crest enforces for the FP path.
+    wl = synth.wavelength_axis()
+    n_frames = 15
+    centers = np.column_stack(
+        [
+            np.full(n_frames, 1540.0),
+            np.linspace(1541.0, 1540.1, n_frames),
+        ]
+    )
+    seq = synth.simulate_sequence(
+        wl, opd_nm=np.full(n_frames, OPD_NM), fbg_centers_nm=centers
+    )
+    with pytest.raises(ValueError, match="frame"):
+        track.track_fbg(seq.spectra_db, wl, centers[0])
+
+
+def test_track_fp_rejects_a_reference_off_the_axis():
+    wl = synth.wavelength_axis(n_points=2048)
+    seq = synth.simulate_sequence(wl, opd_nm=OPD_NM)
+    with pytest.raises(ValueError, match="reference"):
+        track.track_fp(seq.spectra_db, wl, BAND, reference_nm=10.0)
