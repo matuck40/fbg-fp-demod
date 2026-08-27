@@ -46,12 +46,18 @@ def separate_pressure_temperature(
     """Solve the 2x2 sensitivity system for pressure (bar) and temperature (degC).
 
     ``delta_fbg_nm`` and ``delta_fpi_nm`` are wavelength shifts from the same
-    reference frame. The four keyword sensitivities are the entries of the
-    matrix above; override any of them to match another sensor pair.
-    Returns ``(pressure, temperature)`` with the shape of the inputs.
+    reference frame and must share one shape. The four keyword sensitivities
+    are the entries of the matrix above; override any of them to match
+    another sensor pair. Returns ``(pressure, temperature)`` with the shape
+    of the inputs (0-d arrays for scalar inputs).
     """
     delta_fbg_nm = np.asarray(delta_fbg_nm, dtype=float)
     delta_fpi_nm = np.asarray(delta_fpi_nm, dtype=float)
+    if delta_fbg_nm.shape != delta_fpi_nm.shape:
+        raise ValueError(
+            f"delta_fbg_nm shape {delta_fbg_nm.shape} != "
+            f"delta_fpi_nm shape {delta_fpi_nm.shape}"
+        )
 
     matrix = np.array(
         [
@@ -59,7 +65,7 @@ def separate_pressure_temperature(
             [fpi_pressure_nm_per_bar, fpi_temperature_nm_per_c],
         ]
     )
-    if abs(np.linalg.det(matrix)) < 1e-12:
+    if abs(np.linalg.det(matrix)) < 1e-9 * np.abs(matrix).max() ** 2:
         raise ValueError(
             "sensitivity matrix is singular: the FBG and FPI responses are "
             "proportional, so pressure and temperature cannot be separated"
