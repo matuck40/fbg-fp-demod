@@ -15,7 +15,7 @@ ground truth; no measured data is included.
 ## Run it
 
 ```bash
-git clone <this-repo> && cd fbg-fp-demod
+git clone https://github.com/matuck40/fbg-fp-demod.git && cd fbg-fp-demod
 python3 -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev]"
 python demo.py   # writes demo.png: truth vs demodulated P and T
