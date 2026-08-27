@@ -38,3 +38,6 @@ docs/superpowers/
 
 # Generated demo output (a committed snapshot lives in docs/)
 /demo.png
+
+# Local editor/agent tooling
+.claude/

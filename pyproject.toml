@@ -15,6 +15,7 @@ dependencies = ["numpy", "scipy", "matplotlib"]
 
 [project.optional-dependencies]
 dev = ["pytest"]
+app = ["streamlit"]
 
 [tool.setuptools.packages.find]
 include = ["fbgfp*"]
