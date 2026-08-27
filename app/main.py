@@ -35,7 +35,7 @@ def derived_band(opd_nm):
     return 0.85 * f_min, 1.15 * f_max
 
 
-@st.cache_data
+@st.cache_data(max_entries=64)
 def run_pipeline(p_max, t_max, n_frames, noise_db, drift_db, opd_nm, trim, band):
     """Generate, demodulate, and package plain arrays for display.
 
@@ -53,9 +53,10 @@ def run_pipeline(p_max, t_max, n_frames, noise_db, drift_db, opd_nm, trim, band)
     )
     delta_fbg = physics.FBG_TEMPERATURE_NM_PER_C * temperature_true
 
-    # ...scaled through the tracked crest: the fringe maximum nearest
-    # mid-axis, which converts wavelength shift to OPD for any cavity size.
-    crest0_nm = opd_nm / np.rint(opd_nm / REFERENCE_NM)
+    # ...scaled through the crest the tracker actually follows: the one
+    # bracketed by the valley nearest the reference and its right
+    # neighbour, i.e. fringe order floor(opd/reference).
+    crest0_nm = opd_nm / np.rint(opd_nm / REFERENCE_NM - 0.5)
     centers = np.column_stack(
         [INTERNAL_FBG_NM + delta_fbg, np.full(n_frames, STATIC_FBG_NM)]
     )
@@ -113,11 +114,15 @@ def sidebar_controls():
         st.caption(f"FFT pass band, derived from OPD: {low:.4f}-{high:.4f} cycles/nm")
         with st.expander("Advanced"):
             override = st.checkbox("Override band")
+            # Stable keys: without them the inputs are re-created (and thus
+            # reset to the derived values) every time the OPD slider moves.
             band_low = st.number_input(
-                "Band low (cycles/nm)", value=float(low), step=0.001, format="%.4f"
+                "Band low (cycles/nm)", value=float(low), step=0.001,
+                format="%.4f", key="band_low",
             )
             band_high = st.number_input(
-                "Band high (cycles/nm)", value=float(high), step=0.001, format="%.4f"
+                "Band high (cycles/nm)", value=float(high), step=0.001,
+                format="%.4f", key="band_high",
             )
         band = (band_low, band_high) if override else (low, high)
 
@@ -183,7 +188,7 @@ st.write(
 params = sidebar_controls()
 try:
     result = run_pipeline(**params)
-except ValueError as error:
+except (ValueError, RuntimeError) as error:
     st.error(
         f"{error}\n\nThe tracker lost the fringe with these settings — "
         "widen the band or reduce the excursion."
@@ -195,7 +200,10 @@ rms_t = float(np.sqrt(np.mean((result["temperature"] - result["temperature_true"
 col_p, col_t, col_h = st.columns(3)
 col_p.metric("RMS pressure error", f"{rms_p:.3f} bar")
 col_t.metric("RMS temperature error", f"{rms_t:.2f} °C")
-col_h.metric("Fringe hops", str(result["n_hops"]))
+col_h.metric(
+    "Fringe hops", str(result["n_hops"]),
+    help="Expected 0: the reachable excursions stay far below one fringe.",
+)
 
 for figure in (method_figure(result), recovery_figure(result)):
     st.pyplot(figure)
