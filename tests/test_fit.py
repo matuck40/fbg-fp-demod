@@ -102,3 +102,28 @@ def test_fringe_crest_requires_ordered_valleys():
     signal = np.zeros_like(wl)
     with pytest.raises(ValueError, match="left"):
         fit.fit_fringe_crest(wl, signal, 1500.0, 1490.0)
+
+
+def test_fringe_crest_rejects_a_center_outside_the_bracket():
+    # On a pathological window curve_fit can converge silently to a centre
+    # far outside the valleys (seed 2 lands at ~-8.9 on this window). The
+    # tracker must see an error, not a poisoned reference.
+    x = np.linspace(0.0, 1.0, 200)
+    noise = np.random.default_rng(2).normal(0.0, 1.0, x.size)
+    with pytest.raises(ValueError, match="outside"):
+        fit.fit_fringe_crest(x, noise, 0.0, 1.0)
+
+
+def test_fringe_crest_validates_trim():
+    x = np.linspace(0.0, 1.0, 100)
+    with pytest.raises(ValueError, match="trim"):
+        fit.fit_fringe_crest(x, x, 0.0, 1.0, trim=0.5)
+
+
+def test_fringe_crest_regression_pins_the_ported_method():
+    # Characterization pin, exact to the picometre: the band-passed crest
+    # of OPD 87 um fitted with the 10% trim reads 1581.8038 nm. A change
+    # in trim, band handling or start values moves this value.
+    wl = synth.wavelength_axis()
+    center = _crest_from_single_spectrum(synth.fp_spectrum(wl, OPD_NM), wl, REFERENCE_NM)
+    assert center == pytest.approx(1581.8038, abs=0.001)

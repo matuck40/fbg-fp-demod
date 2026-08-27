@@ -84,3 +84,30 @@ def test_nearest_valley_pair_refuses_the_last_valley():
 def test_nearest_valley_pair_needs_two_valleys():
     with pytest.raises(ValueError, match="two"):
         peaks.nearest_valley_pair([1500.0], reference_nm=1500.0)
+
+
+def test_crest_reading_is_the_wrong_reference_for_the_next_frame():
+    # Documents the tracking contract: the self-updating reference must be
+    # the returned left valley (as in the original ref_wave update), never
+    # the fitted crest — the crest sits mid-fringe, where filtered-valley
+    # displacement (~1 nm) can flip the nearest-valley choice to the next
+    # fringe. Here the crest at ~1581.8 nm selects a different pair.
+    wl = synth.wavelength_axis()
+    filtered = peaks.fft_bandpass(
+        peaks.linearize(synth.fp_spectrum(wl, OPD_NM)), STEP_NM, BAND
+    )
+    valleys = peaks.find_valleys(wl, filtered)
+    left, _ = peaks.nearest_valley_pair(valleys, reference_nm=1560.0)
+
+    left_again, _ = peaks.nearest_valley_pair(valleys, reference_nm=left)
+    assert left_again == left  # valley as reference: stable
+
+    crest_reference = 1581.8  # the fitted crest of this pair
+    with pytest.raises(ValueError, match="last"):
+        # crest as reference: hops to the next pair (here, off the edge)
+        peaks.nearest_valley_pair(valleys, reference_nm=crest_reference)
+
+
+def test_linearize_rejects_a_flat_spectrum():
+    with pytest.raises(ValueError, match="flat"):
+        peaks.linearize(np.full(100, -35.0))

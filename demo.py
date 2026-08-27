@@ -17,17 +17,17 @@ from fbgfp import fit, peaks, synth
 
 OPD_NM = 87_000.0
 BAND = (0.030, 0.042)  # cycles/nm
-STEP_NM = 0.008
 REFERENCE_NM = 1560.0
 
 
 def main():
     wl = synth.wavelength_axis()
+    step_nm = wl[1] - wl[0]  # derive from the axis so they cannot disagree
     fbg_centers = [1525.4, 1540.6, 1554.8]
     spectrum_db = synth.multiplexed_spectrum(wl, OPD_NM, fbg_centers)
 
     # Single-frame demodulation: linearize, band-pass, valleys, crest fit.
-    filtered = peaks.fft_bandpass(peaks.linearize(spectrum_db), STEP_NM, BAND)
+    filtered = peaks.fft_bandpass(peaks.linearize(spectrum_db), step_nm, BAND)
     valleys = peaks.find_valleys(wl, filtered)
     left, right = peaks.nearest_valley_pair(valleys, REFERENCE_NM)
     crest = fit.fit_fringe_crest(wl, filtered, left, right)

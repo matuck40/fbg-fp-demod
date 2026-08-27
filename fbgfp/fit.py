@@ -40,12 +40,24 @@ def fit_fringe_crest(wavelength_nm, signal, valley_left_nm, valley_right_nm, *, 
 
     The window is trimmed by ``trim`` of the valley separation on each side
     (10% in the original pipeline), so the fit sees the crest rather than
-    the valley walls.
+    the valley walls. A fit whose centre converges outside the bracketing
+    valleys is rejected: silently accepting it would poison a tracker's
+    self-updating reference.
     """
     if not valley_left_nm < valley_right_nm:
         raise ValueError("valley_left_nm must be smaller than valley_right_nm")
+    if not 0.0 <= trim < 0.5:
+        raise ValueError("trim must lie in [0, 0.5) to leave a window to fit")
+    wavelength_nm = np.asarray(wavelength_nm, dtype=float)
+    signal = np.asarray(signal, dtype=float)
     span = valley_right_nm - valley_left_nm
     low = valley_left_nm + trim * span
     high = valley_right_nm - trim * span
     window = (wavelength_nm >= low) & (wavelength_nm <= high)
-    return fit_gaussian(wavelength_nm[window], signal[window])
+    result = fit_gaussian(wavelength_nm[window], signal[window])
+    if not valley_left_nm <= result.center <= valley_right_nm:
+        raise ValueError(
+            f"fitted centre {result.center:.4f} lies outside the bracketing "
+            f"valleys [{valley_left_nm:.4f}, {valley_right_nm:.4f}]"
+        )
+    return result
