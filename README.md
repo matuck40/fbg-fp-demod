@@ -67,6 +67,18 @@ Measured on the synthetic benchmark (20 000-point spectra, 8 pm grid,
 Calibration sensitivities are library defaults and can be overridden per
 sensor pair — see `fbgfp/physics.py`.
 
+## App
+
+An optional interactive playground (Streamlit): sliders for the scenario
+(pressure, temperature, noise, drift) and the sensor (cavity OPD), with live
+demodulation and truth-vs-recovered plots. It is installed only via the extra,
+so the core library stays numpy/scipy/matplotlib.
+
+```bash
+pip install -e ".[app]"
+streamlit run app/main.py
+```
+
 ## License
 
 MIT.
