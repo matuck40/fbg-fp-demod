@@ -86,12 +86,14 @@ def _iter_responses(path):
                 timestamp, channels = None, []
 
 
-def read_responses(path, channel=None):
+def read_responses(path, channel=None, max_spectra=None):
     """Materialize a Responses export.
 
     ``channel`` is 1-based and PHYSICAL: channel 1 is the first data line
     after each timestamp. (The original MATLAB discarded that line as a
     separator, so its channel numbering was shifted by one.)
+    ``max_spectra`` stops reading after that many records — useful to
+    preview a multi-gigabyte export.
     """
     if channel is not None and channel < 1:
         raise ValueError(f"channel is 1-based and physical; got {channel}")
@@ -99,6 +101,8 @@ def read_responses(path, channel=None):
     wavelength_nm = next(stream)
     timestamps, blocks = [], []
     for timestamp, block in stream:
+        if max_spectra is not None and len(blocks) >= max_spectra:
+            break
         if channel is not None and channel > block.shape[0]:
             raise ValueError(
                 f"channel {channel} requested but the file has "

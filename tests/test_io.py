@@ -155,3 +155,14 @@ def test_channel_selection_rejects_non_positive_indices(tmp_path):
         io.read_responses(path, channel=0)
     with pytest.raises(ValueError, match="channel"):
         io.read_responses(path, channel=5)
+
+
+def test_read_responses_can_cap_the_number_of_spectra(tmp_path):
+    _, blocks = _synthetic_blocks(n_frames=3)
+    stamps = [datetime(2026, 1, 5) + timedelta(seconds=20 * i) for i in range(3)]
+    path = tmp_path / "Responses.synthetic.txt"
+    write_responses(path, stamps, blocks)
+
+    result = io.read_responses(path, channel=1, max_spectra=2)
+    assert result.spectra_db.shape[0] == 2
+    assert result.timestamps == stamps[:2]
