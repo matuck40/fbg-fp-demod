@@ -67,6 +67,11 @@ Measured on the synthetic benchmark (20 000-point spectra, 8 pm grid,
 Calibration sensitivities are library defaults and can be overridden per
 sensor pair — see `fbgfp/physics.py`.
 
+Beyond the synthetic benchmark, the port has been cross-checked against
+the original MATLAB implementation on 7 902 recorded spectra from the
+battery-cell experiments (43 h of cycling): agreement within 0.2 pm
+worst-case, 0.04 pm RMS. The recorded data is not included.
+
 ## Processing interrogator exports
 
 `scripts/demodulate.py` is the processing tool: point it at ENLIGHT
