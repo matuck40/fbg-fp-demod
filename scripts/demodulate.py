@@ -101,7 +101,13 @@ def main(argv=None):
     timestamps, spectra = [], []
     wavelength_nm = None
     for path in paths:
-        loaded = io.read_responses(path, channel=args.channel)
+        try:
+            loaded = io.read_responses(path, channel=args.channel)
+        except FileNotFoundError:
+            raise SystemExit(
+                f"no such file: {path} — check the path (glob patterns must "
+                "be quoted so the shell does not expand them)"
+            )
         if wavelength_nm is None:
             wavelength_nm = loaded.wavelength_nm
         elif not np.array_equal(loaded.wavelength_nm, wavelength_nm):

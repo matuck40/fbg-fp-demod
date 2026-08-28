@@ -149,3 +149,12 @@ def test_spectra_outside_the_peak_stream_get_nan(tmp_path):
     assert float(rows[0]["CH1_peak1_nm"]) == 1525.0
     assert np.isnan(float(rows[1]["CH1_peak1_nm"]))
     assert np.isnan(float(rows[2]["CH1_peak1_nm"]))
+
+
+def test_missing_file_gives_a_clean_error(tmp_path, capsys):
+    import pytest as _pytest
+
+    with _pytest.raises(SystemExit, match="no such file"):
+        _load_script().main(
+            ["/nowhere/Responses*.txt", "-o", str(tmp_path / "out.csv")]
+        )
