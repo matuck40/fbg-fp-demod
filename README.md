@@ -67,6 +67,24 @@ Measured on the synthetic benchmark (20 000-point spectra, 8 pm grid,
 Calibration sensitivities are library defaults and can be overridden per
 sensor pair — see `fbgfp/physics.py`.
 
+## Processing interrogator exports
+
+`scripts/demodulate.py` is the processing tool: point it at ENLIGHT
+`Responses*.txt` exports (and optionally the instrument's `Peaks*.txt`
+stream) and it writes one CSV row per spectrum — demodulated FPI
+wavelength from the spectra, FBG positions from the peak stream
+(Savitzky-Golay filtered), aligned by timestamp. Optical signals only.
+
+```bash
+python scripts/demodulate.py "Responses*.txt" --peaks Peaks.txt -o out.csv
+```
+
+The FBGs come from the peak stream rather than the saved spectra on
+purpose: the stream runs at the instrument's full acquisition rate, while
+saved spectra are decimated and quantized to the export grid. The broad
+FP fringe is the opposite case — the built-in tracker resolves it poorly,
+which is why the FPI is demodulated spectrally here.
+
 ## App
 
 An optional interactive playground (Streamlit): sliders for the scenario
