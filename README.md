@@ -92,10 +92,12 @@ which is why the FPI is demodulated spectrally here.
 
 ## App
 
-An optional interactive playground (Streamlit): sliders for the scenario
-(pressure, temperature, noise, drift) and the sensor (cavity OPD), with live
-demodulation and truth-vs-recovered plots. It is installed only via the extra,
-so the core library stays numpy/scipy/matplotlib.
+An optional pipeline viewer (Streamlit): the method one spectrum at a
+time — raw spectrum, FFT with the pass band marked, filtered fringe with
+the Gaussian crest fit, and the resulting trajectory — with a frame
+slider. Data source is either a synthetic scenario or a local ENLIGHT
+Responses export (read on your machine; nothing is uploaded). Installed
+only via the extra, so the core library stays numpy/scipy/matplotlib.
 
 ```bash
 pip install -e ".[app]"
