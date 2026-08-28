@@ -142,3 +142,16 @@ def test_peaks_skips_malformed_rows(tmp_path):
 
     result = io.read_peaks(path)
     assert len(result.timestamps) == 3
+
+
+def test_channel_selection_rejects_non_positive_indices(tmp_path):
+    # channel is 1-based and physical; 0 or negative would silently wrap
+    # to another channel's data via Python indexing.
+    _, blocks = _synthetic_blocks()
+    stamps = [datetime(2026, 1, 5) + timedelta(seconds=20 * i) for i in range(3)]
+    path = tmp_path / "Responses.synthetic.txt"
+    write_responses(path, stamps, blocks)
+    with pytest.raises(ValueError, match="channel"):
+        io.read_responses(path, channel=0)
+    with pytest.raises(ValueError, match="channel"):
+        io.read_responses(path, channel=5)

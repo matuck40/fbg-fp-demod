@@ -44,13 +44,11 @@ def _parse_header_value(line):
     return float(line.split(":")[1].strip().replace(",", "."))
 
 
-def iter_responses(path):
-    """Yield ``(datetime, block)`` per record, block shaped (n_channels, n_points).
-
-    Reads the wavelength grid from the header; the grid is attached to the
-    generator as attributes once the header is consumed (use
-    ``read_responses`` for the materialized form).
-    """
+def _iter_responses(path):
+    """Stream a Responses export: the first ``next()`` yields the wavelength
+    axis read from the header; every later item is ``(datetime, block)``
+    with ``block`` shaped (n_channels, n_points). Internal — use
+    ``read_responses`` for the materialized form."""
     with open(path, "r", encoding="latin-1") as handle:
         n_header = int(handle.readline())
         start_nm = step_nm = n_points = None
@@ -95,12 +93,22 @@ def read_responses(path, channel=None):
     after each timestamp. (The original MATLAB discarded that line as a
     separator, so its channel numbering was shifted by one.)
     """
-    stream = iter_responses(path)
+    if channel is not None and channel < 1:
+        raise ValueError(f"channel is 1-based and physical; got {channel}")
+    stream = _iter_responses(path)
     wavelength_nm = next(stream)
     timestamps, blocks = [], []
     for timestamp, block in stream:
+        if channel is not None and channel > block.shape[0]:
+            raise ValueError(
+                f"channel {channel} requested but the file has "
+                f"{block.shape[0]} channels"
+            )
         timestamps.append(timestamp)
-        blocks.append(block if channel is None else block[channel - 1])
+        # .copy() releases the full 4-channel block; without it every view
+        # keeps its parent alive and a selected-channel read of a 4 GB
+        # export still retains all four channels in memory.
+        blocks.append(block if channel is None else block[channel - 1].copy())
     return Responses(timestamps, np.array(blocks), wavelength_nm)
 
 

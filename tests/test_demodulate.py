@@ -118,3 +118,34 @@ def test_script_runs_without_a_peaks_file(tmp_path):
         rows = list(csv.DictReader(f))
     assert len(rows) == n_frames
     assert "FPI_Wavelength_nm" in rows[0]
+
+
+def test_spectra_outside_the_peak_stream_get_nan(tmp_path):
+    # The peak stream covers only the first spectrum; the others must come
+    # out as NaN rather than borrowing a stale sample.
+    n_frames, n_points = 3, 8192
+    wl = synth.wavelength_axis(n_points=n_points)
+    blocks = np.stack(
+        [np.stack([synth.fp_spectrum(wl, 87_000.0)] * 4) for _ in range(n_frames)]
+    )
+    t0 = datetime(2026, 1, 5, 12, 0, 0)
+    stamps = [t0 + timedelta(seconds=60 * i) for i in range(n_frames)]
+    write_responses(tmp_path / "Responses.synth.txt", stamps, blocks)
+    write_peaks(
+        tmp_path / "Peaks.synth.txt",
+        [t0 + timedelta(seconds=i) for i in range(3)],
+        (1, 1, 2, 3),
+        np.full((3, 7), 1525.0),
+    )
+
+    out = tmp_path / "result.csv"
+    _load_script().main(
+        [str(tmp_path / "Responses.synth.txt"), "--peaks",
+         str(tmp_path / "Peaks.synth.txt"), "--channel", "1",
+         "--reference", "1470", "--sg-window", "3", "-o", str(out)]
+    )
+    with open(out) as f:
+        rows = list(csv.DictReader(f))
+    assert float(rows[0]["CH1_peak1_nm"]) == 1525.0
+    assert np.isnan(float(rows[1]["CH1_peak1_nm"]))
+    assert np.isnan(float(rows[2]["CH1_peak1_nm"]))

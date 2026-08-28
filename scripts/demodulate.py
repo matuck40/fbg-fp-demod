@@ -49,6 +49,7 @@ def align_peaks(peak_data, spectra_timestamps, sg_order, sg_window, max_gap_s):
     columns, names = [], []
     for ch_index, channel in enumerate(peak_data.channels):
         window = min(sg_window, channel.shape[0] - (channel.shape[0] + 1) % 2)
+        window -= 1 - window % 2  # Savitzky-Golay windows must be odd
         for peak_index in range(channel.shape[1]):
             series = channel[:, peak_index]
             if window > sg_order:
@@ -111,6 +112,10 @@ def main(argv=None):
         raise SystemExit("no spectra found")
     spectra = np.vstack(spectra)
     step_nm = wavelength_nm[1] - wavelength_nm[0]
+
+    if any(b < a for a, b in zip(timestamps, timestamps[1:])):
+        print("warning: spectra are not in chronological order; "
+              "check the input file ordering", file=sys.stderr)
 
     result = track.track_fp(spectra, wavelength_nm, tuple(args.band), args.reference,
                             trim=args.trim)
