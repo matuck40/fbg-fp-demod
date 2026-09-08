@@ -23,7 +23,8 @@ import sys
 import numpy as np
 from scipy.signal import savgol_filter
 
-from fbgfp import io, peaks as fpeaks, track
+from fbgfp import io, track
+from fbgfp import peaks as fpeaks
 
 
 def dominant_fringe_component(spectrum_db, step_nm, band):
@@ -107,7 +108,7 @@ def main(argv=None):
             raise SystemExit(
                 f"no such file: {path} — check the path (glob patterns must "
                 "be quoted so the shell does not expand them)"
-            )
+            ) from None
         if wavelength_nm is None:
             wavelength_nm = loaded.wavelength_nm
         elif not np.array_equal(loaded.wavelength_nm, wavelength_nm):
@@ -119,7 +120,7 @@ def main(argv=None):
     spectra = np.vstack(spectra)
     step_nm = wavelength_nm[1] - wavelength_nm[0]
 
-    if any(b < a for a, b in zip(timestamps, timestamps[1:])):
+    if any(b < a for a, b in zip(timestamps, timestamps[1:], strict=False)):
         print("warning: spectra are not in chronological order; "
               "check the input file ordering", file=sys.stderr)
 

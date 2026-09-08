@@ -11,10 +11,9 @@ import pathlib
 from datetime import datetime, timedelta
 
 import numpy as np
+from test_io import write_peaks, write_responses
 
 from fbgfp import synth
-
-from test_io import write_peaks, write_responses
 
 
 def _load_script():
