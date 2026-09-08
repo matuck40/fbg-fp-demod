@@ -1,5 +1,7 @@
 # fbg-fp-demod
 
+![tests](https://github.com/matuck40/fbg-fp-demod/actions/workflows/tests.yml/badge.svg)
+
 Peak-tracking demodulation for Fabry-Perot and fibre Bragg grating (FBG)
 sensors, operating on recorded interrogator spectra. Python port of the MATLAB pipeline that
 made it possible to measure pressure variation inside sealed commercial
