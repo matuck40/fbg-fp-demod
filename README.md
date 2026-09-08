@@ -46,7 +46,10 @@ cross-sensitivity).
 | `fbgfp/fit.py` | Gaussian fits: sub-sample centres |
 | `fbgfp/track.py` | tracking across a sequence, fringe-hop unwrap |
 | `fbgfp/physics.py` | spectral shifts to pressure (bar) and temperature (°C) |
+| `fbgfp/io.py` | readers for the interrogator's `Responses` (spectra) and `Peaks` (peak stream) text exports |
 | `demo.py` | the full chain, truth vs recovered |
+| `scripts/demodulate.py` | CLI: FPI demodulated from `Responses` spectra, FBGs from the `Peaks` stream (Savitzky-Golay filtered), one CSV row per spectrum |
+| `app/main.py` | Streamlit viewer: one spectrum at a time — raw, FFT with pass band, filtered fringe with crest fit, trajectory — from a synthetic scenario or a local `Responses` export |
 
 ## Accuracy, as asserted by the tests
 
@@ -69,10 +72,13 @@ Measured on the synthetic benchmark (20 000-point spectra, 8 pm grid,
 Calibration sensitivities are library defaults and can be overridden per
 sensor pair — see `fbgfp/physics.py`.
 
-Beyond the synthetic benchmark, the port has been cross-checked against
-the original MATLAB implementation on 7 902 recorded spectra from the
+Beyond the synthetic benchmark, the port was cross-checked against the
+original MATLAB implementation on 7 902 recorded spectra from the
 battery-cell experiments (43 h of cycling): agreement within 0.2 pm
-worst-case, 0.04 pm RMS. The recorded data is not included.
+worst-case, 0.04 pm RMS. That comparison was done outside this
+repository, on measurement data that is not included here; no script,
+data or log of it lives in this repository, so it cannot be reproduced
+from what is here. Only the synthetic checks above are.
 
 ## Processing interrogator exports
 
