@@ -16,8 +16,9 @@ import pytest
 
 st_testing = pytest.importorskip("streamlit.testing.v1")
 
-from fbgfp import synth, track  # noqa: E402
 from test_io import write_responses  # noqa: E402
+
+from fbgfp import synth, track  # noqa: E402
 
 APP_PATH = Path(__file__).resolve().parent.parent / "app" / "main.py"
 

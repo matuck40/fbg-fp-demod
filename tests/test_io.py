@@ -26,13 +26,13 @@ def write_responses(path, timestamps, blocks, start_nm=1460.0, step_nm=0.008):
         "Culture: pt-PT ",
         f"Date: {timestamps[0].strftime('%d/%m/%Y %H:%M:%S.%f')[:-1]}",
         "Module Type: Hyperion",
-        f"Wavelength Start (nm): {('%.5f' % start_nm).replace('.', ',')}",
-        f"Wavelength Delta (nm): {('%.4f' % step_nm).replace('.', ',')}",
+        f"Wavelength Start (nm): {f'{start_nm:.5f}'.replace('.', ',')}",
+        f"Wavelength Delta (nm): {f'{step_nm:.4f}'.replace('.', ',')}",
         f"Number of Points: {n_points}",
         "",
     ]
     lines = [str(len(header) + 1)] + header
-    for stamp, block in zip(timestamps, blocks):
+    for stamp, block in zip(timestamps, blocks, strict=False):
         lines.append(stamp.strftime("%d/%m/%Y %H:%M:%S.%f")[:-1])
         for channel in block:
             lines.append(_comma(channel))
@@ -45,7 +45,7 @@ def write_peaks(path, timestamps, counts, peaks):
     header = ["Culture: pt-PT ", "Module Type: Hyperion",
               "Timestamp\t" + "\t".join(f"# CH {i+1}" for i in range(len(counts)))]
     lines = [str(len(header) + 1)] + header
-    for stamp, row in zip(timestamps, peaks):
+    for stamp, row in zip(timestamps, peaks, strict=False):
         lines.append(
             stamp.strftime("%d/%m/%Y %H:%M:%S.%f")[:-1]
             + "\t" + "\t".join(str(c) for c in counts)

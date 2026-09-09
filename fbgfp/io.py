@@ -49,7 +49,7 @@ def _iter_responses(path):
     axis read from the header; every later item is ``(datetime, block)``
     with ``block`` shaped (n_channels, n_points). Internal — use
     ``read_responses`` for the materialized form."""
-    with open(path, "r", encoding="latin-1") as handle:
+    with open(path, encoding="latin-1") as handle:
         n_header = int(handle.readline())
         start_nm = step_nm = n_points = None
         for _ in range(n_header - 1):
@@ -120,7 +120,7 @@ def read_peaks(path):
     """Read a Peaks export; malformed rows are skipped, not fatal."""
     timestamps, rows = [], []
     counts = None
-    with open(path, "r", encoding="latin-1") as handle:
+    with open(path, encoding="latin-1") as handle:
         n_header = int(handle.readline())
         for _ in range(n_header - 1):
             handle.readline()
