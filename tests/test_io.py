@@ -6,6 +6,7 @@ them back, so the reader is exercised against the format, not against any
 recorded content.
 """
 
+import gzip
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -166,3 +167,46 @@ def test_read_responses_can_cap_the_number_of_spectra(tmp_path):
     result = io.read_responses(path, channel=1, max_spectra=2)
     assert result.spectra_db.shape[0] == 2
     assert result.timestamps == stamps[:2]
+
+
+def test_a_gzipped_export_reads_back_identically(tmp_path):
+    """Exports compress by roughly 7x; the reader should not care.
+
+    These files are text columns of numbers, so gzip takes a multi-gigabyte
+    export down to a fraction of its size — and takes a sample small enough
+    to ship with the source. Reading must give the same arrays either way.
+    """
+    stamps = [datetime(2026, 3, 24, 9, 39) + timedelta(seconds=20 * i) for i in range(3)]
+    wl = synth.wavelength_axis(n_points=4096)
+    blocks = np.stack(
+        [np.stack([synth.fp_spectrum(wl, 87_000.0 + 12.0 * i)] * 4) for i in range(3)]
+    )
+    plain = tmp_path / "Responses.plain.txt"
+    write_responses(plain, stamps, blocks)
+
+    packed = tmp_path / "Responses.packed.txt.gz"
+    packed.write_bytes(gzip.compress(plain.read_bytes(), 9))
+
+    from_plain = io.read_responses(plain, channel=2)
+    from_packed = io.read_responses(packed, channel=2)
+
+    np.testing.assert_allclose(from_packed.wavelength_nm, from_plain.wavelength_nm)
+    np.testing.assert_allclose(from_packed.spectra_db, from_plain.spectra_db)
+    assert from_packed.timestamps == from_plain.timestamps
+    assert packed.stat().st_size < 0.5 * plain.stat().st_size
+
+
+def test_a_gzipped_peaks_export_reads_back_identically(tmp_path):
+    stamps = [datetime(2026, 3, 24, 9, 39) + timedelta(seconds=2 * i) for i in range(5)]
+    counts = (1, 1, 2, 3)
+    values = 1525.0 + np.random.default_rng(2).random((5, 7))
+    plain = tmp_path / "Peaks.plain.txt"
+    write_peaks(plain, stamps, counts, values)
+    packed = tmp_path / "Peaks.packed.txt.gz"
+    packed.write_bytes(gzip.compress(plain.read_bytes(), 9))
+
+    from_plain, from_packed = io.read_peaks(plain), io.read_peaks(packed)
+    assert from_packed.timestamps == from_plain.timestamps
+    assert from_packed.counts == from_plain.counts
+    for packed_channel, plain_channel in zip(from_packed.channels, from_plain.channels):
+        np.testing.assert_allclose(packed_channel, plain_channel)

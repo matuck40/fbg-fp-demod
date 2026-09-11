@@ -13,6 +13,7 @@ Two formats, both text with pt-PT decimal commas:
   demodulated from ``Responses``.
 """
 
+import gzip
 from dataclasses import dataclass
 from datetime import datetime
 
@@ -40,6 +41,22 @@ class Peaks:
     channels: list
 
 
+def _open_text(path):
+    """Open an export for reading, transparently decompressing gzip.
+
+    These exports are text columns of numbers and compress by roughly
+    seven to one, which is what makes a sample small enough to ship with
+    the source — and what makes keeping a multi-gigabyte recording on
+    disk practical. Detected by magic bytes rather than by suffix, so a
+    renamed file still reads.
+    """
+    with open(path, "rb") as probe:
+        compressed = probe.read(2) == b"\x1f\x8b"
+    if compressed:
+        return gzip.open(path, "rt", encoding="latin-1")
+    return open(path, "r", encoding="latin-1")
+
+
 def _parse_header_value(line):
     return float(line.split(":")[1].strip().replace(",", "."))
 
@@ -49,7 +66,7 @@ def _iter_responses(path):
     axis read from the header; every later item is ``(datetime, block)``
     with ``block`` shaped (n_channels, n_points). Internal — use
     ``read_responses`` for the materialized form."""
-    with open(path, "r", encoding="latin-1") as handle:
+    with _open_text(path) as handle:
         n_header = int(handle.readline())
         start_nm = step_nm = n_points = None
         for _ in range(n_header - 1):
@@ -120,7 +137,7 @@ def read_peaks(path):
     """Read a Peaks export; malformed rows are skipped, not fatal."""
     timestamps, rows = [], []
     counts = None
-    with open(path, "r", encoding="latin-1") as handle:
+    with _open_text(path) as handle:
         n_header = int(handle.readline())
         for _ in range(n_header - 1):
             handle.readline()
