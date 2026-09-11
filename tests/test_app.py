@@ -103,3 +103,50 @@ def test_synthetic_sequence_uses_the_tracked_fringe_order():
     recovered = result.corrected_nm - result.corrected_nm[0]
     errors = np.abs(recovered - intended_shift)
     assert np.all(errors <= 0.06 * np.abs(intended_shift) + 0.002)
+
+
+def _line_labelled(fig, fragment):
+    """The plotted line whose legend label contains ``fragment``."""
+    for axis in fig.axes:
+        for line in axis.get_lines():
+            label = line.get_label()
+            if fragment.lower() in label.lower():
+                return line
+    raise AssertionError(
+        f"no line labelled {fragment!r}; found "
+        f"{[l.get_label() for a in fig.axes for l in a.get_lines()]}"
+    )
+
+
+def test_the_reading_shown_on_the_spectrum_is_plotted_on_the_trajectory():
+    """The number panel 3 prints must be findable on panel 4's y axis.
+
+    The original MATLAB plotted ``total_wave_data(b) = pico_x`` — the same
+    absolute nm it printed as "Actual reading" over the filtered spectrum,
+    so the two panels read as one measurement. Plotting a picometre shift
+    relative to frame 0 instead breaks that link: different quantity,
+    different unit, different origin.
+    """
+    app = _load_app_module()
+    opd_nm, trim, n_frames = 87_000.0, 0.1, 60
+    wl, spectra_db, _ = app.synthetic_sequence(
+        p_max=1.5, t_max=2.0, n_frames=n_frames, noise_db=0.2,
+        drift_db=0.3, opd_nm=opd_nm,
+    )
+    band = app.derived_band(opd_nm, wl)
+    result = track.track_fp(spectra_db, wl, band, app.SYNTH_REFERENCE_NM, trim=trim)
+
+    for frame in (0, 17, 30, 59):
+        _, reading_nm = app.pipeline_figure(
+            wl, spectra_db[frame], band, result.valley_nm[frame], trim,
+            frame=frame, n_frames=n_frames,
+        )
+        trajectory = app.trajectory_figure(
+            np.arange(n_frames), result.crest_nm, result.corrected_nm,
+            result.hop_frames, frame, "Frame",
+        )
+        plotted = _line_labelled(trajectory, "reading")
+        assert plotted.get_ydata()[frame] == pytest.approx(reading_nm, abs=1e-9), (
+            f"frame {frame}: panel 3 prints {reading_nm:.5f} nm but panel 4 "
+            f"plots {plotted.get_ydata()[frame]:.5f} at that frame"
+        )

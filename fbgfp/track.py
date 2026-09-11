@@ -32,6 +32,7 @@ class FpTrack:
     corrected_nm: np.ndarray  # crest minus the accumulated fringe offset
     valley_nm: np.ndarray  # tracked left valley per frame
     hop_frames: tuple  # frames where the tracked fringe changed
+    hop_fringes: tuple = ()  # signed fringe count of each hop, same order
 
 
 def track_fp(spectra_db, wavelength_nm, band_cycles_per_nm, reference_nm, *, trim=0.1):
@@ -50,6 +51,7 @@ def track_fp(spectra_db, wavelength_nm, band_cycles_per_nm, reference_nm, *, tri
     corrected = np.empty(n_frames)
     valley = np.empty(n_frames)
     hops = []
+    fringes = []
     offset = 0.0
     reference = float(reference_nm)
 
@@ -74,6 +76,7 @@ def track_fp(spectra_db, wavelength_nm, band_cycles_per_nm, reference_nm, *, tri
             if n_fringes:
                 offset += n_fringes * spacing
                 hops.append(i)
+                fringes.append(n_fringes)
 
         try:
             crest[i] = fit.fit_fringe_crest(
@@ -85,7 +88,7 @@ def track_fp(spectra_db, wavelength_nm, band_cycles_per_nm, reference_nm, *, tri
         valley[i] = left
         reference = left
 
-    return FpTrack(crest, corrected, valley, tuple(hops))
+    return FpTrack(crest, corrected, valley, tuple(hops), tuple(fringes))
 
 
 def track_fbg(spectra_db, wavelength_nm, initial_centers_nm, *, window_nm=1.0):
