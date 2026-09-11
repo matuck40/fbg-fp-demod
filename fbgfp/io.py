@@ -57,6 +57,14 @@ class Responses:
 
 
 @dataclass(frozen=True)
+class Potentiostat:
+    """A cell's electrical record: timestamps and one array per column."""
+
+    timestamps: list
+    columns: dict
+
+
+@dataclass(frozen=True)
 class Peaks:
     """Parsed peak stream: ``channels[i]`` is (n_samples, counts[i])."""
 
@@ -236,3 +244,83 @@ def align_peaks(peak_data, spectra_timestamps, sg_order, sg_window, max_gap_s):
         else:
             rows.append([column[nearest] for column in columns])
     return names, rows
+
+
+def read_potentiostat(path, *, dayfirst=True):
+    """Read a BioLogic CCCV text export: tab separated, decimal commas.
+
+    The first column is headed ``time/s`` but carries a full timestamp, in
+    whatever locale the potentiostat was set to — which need not be the one
+    the interrogator used for the same cell, and which no header here
+    declares. ``dayfirst`` says which to assume; a day above the twelfth
+    anywhere in the file settles it regardless, since a month cannot be 13.
+    Rows that do not parse are skipped rather than fatal, as in the peak
+    reader.
+    """
+    with _open_text(path) as handle:
+        names = [n.strip() for n in handle.readline().split("\t") if n.strip()]
+        rows = [line.rstrip("\n").split("\t") for line in handle if line.strip()]
+    if not names:
+        raise ValueError(f"{path}: no column header")
+
+    stamps = [r[0].strip() for r in rows if r and "/" in r[0]]
+    for field in stamps:
+        parts = field.split("/")
+        if len(parts) < 2 or not parts[0].isdigit() or not parts[1].isdigit():
+            continue
+        if int(parts[0]) > 12:
+            dayfirst = True
+            break
+        if int(parts[1]) > 12:
+            dayfirst = False
+            break
+    stamp_format = ("%d/%m/%Y" if dayfirst else "%m/%d/%Y") + _TIME_OF_DAY
+
+    timestamps, values = [], []
+    for row in rows:
+        if len(row) < len(names):
+            continue
+        try:
+            stamp = datetime.strptime(row[0].strip(), stamp_format)
+            numbers = [float(c.replace(",", ".")) for c in row[1:len(names)]]
+        except ValueError:
+            continue
+        timestamps.append(stamp)
+        values.append(numbers)
+    if not timestamps:
+        raise ValueError(f"{path}: no valid rows found")
+
+    table = np.asarray(values, dtype=float)
+    columns = {name: table[:, i] for i, name in enumerate(names[1:])}
+    return Potentiostat(timestamps, columns)
+
+
+def align_series(source_timestamps, values, target_timestamps, *, max_gap_s):
+    """Carry a series recorded on one clock onto another's timestamps.
+
+    Each target takes the nearest source sample, or NaN when none lies
+    within ``max_gap_s``. Instruments watching the same cell run at
+    different rates and start at different moments, so their records have
+    to be married before they can be plotted or written side by side.
+    """
+    source_timestamps = list(source_timestamps)
+    if not source_timestamps:
+        raise ValueError("no source samples to align")
+    values = np.asarray(values, dtype=float)
+    base = source_timestamps[0]
+    seconds = np.array([(t - base).total_seconds() for t in source_timestamps])
+
+    aligned = np.empty(len(target_timestamps))
+    for i, stamp in enumerate(target_timestamps):
+        target = (stamp - base).total_seconds()
+        nearest = int(np.clip(np.searchsorted(seconds, target), 1, seconds.size) - 1)
+        if nearest + 1 < seconds.size and abs(
+            seconds[nearest + 1] - target
+        ) < abs(seconds[nearest] - target):
+            nearest += 1
+        aligned[i] = (
+            values[nearest]
+            if abs(seconds[nearest] - target) <= max_gap_s
+            else np.nan
+        )
+    return aligned
