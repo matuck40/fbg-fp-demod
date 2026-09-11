@@ -8,6 +8,7 @@ recorded content.
 
 import gzip
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -19,13 +20,15 @@ def _comma(values, fmt="%.2f"):
     return "\t".join((fmt % v).replace(".", ",") for v in values)
 
 
-def write_responses(path, timestamps, blocks, start_nm=1460.0, step_nm=0.008):
+def write_responses(path, timestamps, blocks, start_nm=1460.0, step_nm=0.008,
+                    culture="pt-PT"):
     """Write an ENLIGHT-style Responses export: header, then blocks of
     [timestamp, one line per channel], blank line between blocks."""
     n_points = blocks.shape[2]
+    order = "%m/%d/%Y" if culture == "en-US" else "%d/%m/%Y"
     header = [
-        "Culture: pt-PT ",
-        f"Date: {timestamps[0].strftime('%d/%m/%Y %H:%M:%S.%f')[:-1]}",
+        f"Culture: {culture} ",
+        f"Date: {timestamps[0].strftime(order + ' %H:%M:%S.%f')[:-1]}",
         "Module Type: Hyperion",
         f"Wavelength Start (nm): {('%.5f' % start_nm).replace('.', ',')}",
         f"Wavelength Delta (nm): {('%.4f' % step_nm).replace('.', ',')}",
@@ -34,7 +37,7 @@ def write_responses(path, timestamps, blocks, start_nm=1460.0, step_nm=0.008):
     ]
     lines = [str(len(header) + 1)] + header
     for stamp, block in zip(timestamps, blocks):
-        lines.append(stamp.strftime("%d/%m/%Y %H:%M:%S.%f")[:-1])
+        lines.append(stamp.strftime(order + " %H:%M:%S.%f")[:-1])
         for channel in block:
             lines.append(_comma(channel))
         lines.append("")
@@ -210,3 +213,38 @@ def test_a_gzipped_peaks_export_reads_back_identically(tmp_path):
     assert from_packed.counts == from_plain.counts
     for packed_channel, plain_channel in zip(from_packed.channels, from_plain.channels):
         np.testing.assert_allclose(packed_channel, plain_channel)
+
+
+def test_an_en_us_export_is_not_read_with_the_day_and_month_swapped():
+    """The instrument writes dates in whatever locale it was set to.
+
+    ``9/7/2026`` is 7 September in the en-US export the instrument writes
+    with ``Culture: en-US``, and 9 July if read day-first. The two orders
+    are indistinguishable for the first twelve days of any month, so
+    guessing wrong does not fail — it silently returns the wrong date,
+    and any alignment against another recording quietly slides by months.
+    """
+    from tempfile import TemporaryDirectory
+
+    stamps = [datetime(2026, 9, 7, 11, 27, 3) + timedelta(seconds=20 * i)
+              for i in range(2)]
+    _, blocks = _synthetic_blocks(n_frames=2, n_points=512)
+    with TemporaryDirectory() as folder:
+        path = Path(folder) / "Responses.en-US.txt"
+        write_responses(path, stamps, blocks, culture="en-US")
+        recovered = io.read_responses(path, channel=1)
+    assert recovered.timestamps == stamps
+    assert recovered.timestamps[0].month == 9, "read as July: day/month swapped"
+
+
+def test_a_pt_pt_export_still_reads_day_first():
+    from tempfile import TemporaryDirectory
+
+    stamps = [datetime(2026, 9, 7, 11, 27, 3) + timedelta(seconds=20 * i)
+              for i in range(2)]
+    _, blocks = _synthetic_blocks(n_frames=2, n_points=512)
+    with TemporaryDirectory() as folder:
+        path = Path(folder) / "Responses.pt-PT.txt"
+        write_responses(path, stamps, blocks, culture="pt-PT")
+        recovered = io.read_responses(path, channel=1)
+    assert recovered.timestamps == stamps

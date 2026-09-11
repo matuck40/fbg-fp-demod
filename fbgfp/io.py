@@ -20,7 +20,30 @@ from datetime import datetime
 import numpy as np
 from scipy.signal import savgol_filter
 
-_TIMESTAMP_FORMAT = "%d/%m/%Y %H:%M:%S.%f"
+_TIME_OF_DAY = " %H:%M:%S.%f"
+
+# The instrument stamps its exports in whichever locale it was configured
+# with, and announces it in a ``Culture:`` header line. Day-first and
+# month-first are indistinguishable for the first twelve days of a month,
+# so reading one as the other does not fail — it silently returns the
+# wrong date. Cultures absent here fall back to day-first, which is what
+# this reader did for every file before the header was consulted.
+_DATE_ORDERS = {
+    "en-us": "%m/%d/%Y",
+    "pt-pt": "%d/%m/%Y",
+    "pt-br": "%d/%m/%Y",
+    "en-gb": "%d/%m/%Y",
+}
+_DEFAULT_DATE_ORDER = "%d/%m/%Y"
+_TIMESTAMP_FORMAT = _DEFAULT_DATE_ORDER + _TIME_OF_DAY
+
+
+def _timestamp_format(culture):
+    """The timestamp format a ``Culture:`` header line implies."""
+    if culture is None:
+        return _TIMESTAMP_FORMAT
+    order = _DATE_ORDERS.get(culture.strip().lower(), _DEFAULT_DATE_ORDER)
+    return order + _TIME_OF_DAY
 
 
 @dataclass(frozen=True)
@@ -69,10 +92,12 @@ def _iter_responses(path):
     ``read_responses`` for the materialized form."""
     with _open_text(path) as handle:
         n_header = int(handle.readline())
-        start_nm = step_nm = n_points = None
+        start_nm = step_nm = n_points = culture = None
         for _ in range(n_header - 1):
             line = handle.readline()
-            if line.startswith("Wavelength Start"):
+            if line.startswith("Culture"):
+                culture = line.split(":", 1)[1]
+            elif line.startswith("Wavelength Start"):
                 start_nm = _parse_header_value(line)
             elif line.startswith("Wavelength Delta"):
                 step_nm = _parse_header_value(line)
@@ -82,6 +107,7 @@ def _iter_responses(path):
             raise ValueError(f"{path}: header carries no wavelength grid")
         yield start_nm + step_nm * np.arange(n_points)  # first item: the axis
 
+        stamp_format = _timestamp_format(culture)
         timestamp = None
         channels = []
         for line in handle:
@@ -89,7 +115,7 @@ def _iter_responses(path):
             if not line.strip():
                 continue
             if "\t" not in line:
-                timestamp = datetime.strptime(line.strip(), _TIMESTAMP_FORMAT)
+                timestamp = datetime.strptime(line.strip(), stamp_format)
                 channels = []
                 continue
             row = np.asarray(line.replace(",", ".").split("\t"), dtype=float)
@@ -140,14 +166,18 @@ def read_peaks(path):
     counts = None
     with _open_text(path) as handle:
         n_header = int(handle.readline())
+        culture = None
         for _ in range(n_header - 1):
-            handle.readline()
+            line = handle.readline()
+            if line.startswith("Culture"):
+                culture = line.split(":", 1)[1]
+        stamp_format = _timestamp_format(culture)
         for line in handle:
             parts = line.rstrip("\n").replace(",", ".").split("\t")
             if len(parts) < 2:
                 continue
             try:
-                stamp = datetime.strptime(parts[0].strip(), _TIMESTAMP_FORMAT)
+                stamp = datetime.strptime(parts[0].strip(), stamp_format)
                 row_counts = tuple(int(c) for c in parts[1:5])
                 values = np.asarray(parts[5 : 5 + sum(row_counts)], dtype=float)
             except (ValueError, IndexError):
