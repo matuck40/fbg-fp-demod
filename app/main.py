@@ -106,6 +106,19 @@ def load_peak_stream(path, timestamps, sg_order, sg_window, max_gap_s):
     return names, np.asarray(rows, dtype=float)
 
 
+@st.cache_data(max_entries=4)
+def load_cell_voltage(path, timestamps, max_gap_s):
+    """The cell's voltage, carried onto the spectra's timestamps."""
+    cell = io.read_potentiostat(path)
+    if "Ewe/V" not in cell.columns:
+        raise ValueError(
+            f"no Ewe/V column; the export carries {sorted(cell.columns)}"
+        )
+    return io.align_series(
+        cell.timestamps, cell.columns["Ewe/V"], timestamps, max_gap_s=max_gap_s
+    )
+
+
 @st.cache_data(max_entries=16)
 def run_fbg_tracker(wavelength_nm, spectra_db, centers_nm, window_nm):
     return track.track_fbg(
@@ -182,7 +195,24 @@ def pipeline_figure(wl, spectrum_db, band, tracked_valley_nm, trim,
     return fig, crest.center
 
 
-def trajectory_figure(x, crest_nm, corrected_nm, hop_fringes, frame, xlabel):
+def _overlay_voltage(ax, x, voltage):
+    """The MATLAB's orange dashed voltage on a right-hand axis.
+
+    It comes from the potentiostat, on its own clock and its own sampling
+    rate, already carried onto the spectra's timestamps by the caller.
+    NaN where that record does not reach, which matplotlib leaves as a
+    gap rather than joining across.
+    """
+    if voltage is None:
+        return
+    right = ax.twinx()
+    right.plot(x, voltage, "--", color=ORANGE, lw=0.9)
+    right.set_ylabel("Voltage(V)", color=ORANGE)
+    right.tick_params(axis="y", colors=ORANGE)
+
+
+def trajectory_figure(x, crest_nm, corrected_nm, hop_fringes, frame, xlabel,
+                      voltage=None):
     """The readings over time, in the absolute nm the spectrum panel prints.
 
     When the tracker has unwrapped a fringe hop the corrected series is
@@ -211,11 +241,12 @@ def trajectory_figure(x, crest_nm, corrected_nm, hop_fringes, frame, xlabel):
     ax.set_xlabel(xlabel)
     ax.set_ylabel("CrestPosition(nm)")
     ax.grid(alpha=0.3)
-    ax.legend(fontsize=8)
+    ax.legend(fontsize=8, loc="best")
+    _overlay_voltage(ax, x, voltage)
     return fig
 
 
-def fbg_figure(x, fbg_nm, labels, xlabel, source):
+def fbg_figure(x, fbg_nm, labels, xlabel, source, voltage=None):
     """FBG Bragg shifts, each against its own first reading.
 
     ``source`` names where the numbers came from. The two origins are not
@@ -234,7 +265,8 @@ def fbg_figure(x, fbg_nm, labels, xlabel, source):
     ax.set_xlabel(xlabel)
     ax.set_ylabel("BraggWave(nm)")
     ax.grid(alpha=0.3)
-    ax.legend(fontsize=8)
+    ax.legend(fontsize=8, loc="best")
+    _overlay_voltage(ax, x, voltage)
     return fig
 
 
@@ -265,7 +297,7 @@ if source == "Synthetic scenario":
     reference_nm = SYNTH_REFERENCE_NM
     fbg_centers = (INTERNAL_FBG_NM, STATIC_FBG_NM)
     fbg_labels = ("FBG Interna", "FBG Externa")
-    timestamps, peaks_path = None, ""
+    timestamps, peaks_path, cell_path = None, "", ""
     st.sidebar.caption(f"Pass band from OPD: {band[0]:.4f}-{band[1]:.4f} cycles/nm")
 else:
     path = st.sidebar.text_input("Responses file path (stays on this machine)")
@@ -285,6 +317,11 @@ else:
         help="The instrument's own FBG tracking, at full acquisition rate. "
              "This is the measurement of record for the FBGs: given it, the "
              "panel below uses it instead of fitting the saved spectra.",
+    )
+    cell_path = st.sidebar.text_input(
+        "Cell export path (optional)",
+        help="A potentiostat CCCV export. Its voltage is drawn over both "
+             "panels on the right, as the original MATLAB did.",
     )
     fbg_text = st.sidebar.text_input(
         "FBG centres (nm, comma separated)",
@@ -339,6 +376,16 @@ if frame in hop_frames:
         f"coarser than the picometre readings away from a hop."
     )
 
+voltage = None
+if cell_path.strip():
+    try:
+        voltage = load_cell_voltage(cell_path, timestamps, MAX_GAP_S)
+        if np.isnan(voltage).all():
+            st.warning("The cell export does not overlap these spectra in time.")
+            voltage = None
+    except (OSError, ValueError) as error:
+        st.warning(f"Could not read the cell export: {error}")
+
 left_col, right_col = st.columns(2)
 with left_col:
     try:
@@ -353,7 +400,8 @@ with left_col:
 
 with right_col:
     st.pyplot(
-        trajectory_figure(x_axis, crest_nm, corrected_nm, hop_fringes, frame, xlabel)
+        trajectory_figure(x_axis, crest_nm, corrected_nm, hop_fringes, frame,
+                          xlabel, voltage)
     )
     if peaks_path.strip():
         try:
@@ -365,7 +413,7 @@ with right_col:
                 columns = [names.index(name) for name in chosen]
                 st.pyplot(fbg_figure(
                     x_axis, rows[:, columns], chosen, xlabel,
-                    "the instrument peak stream",
+                    "the instrument peak stream", voltage,
                 ))
         except (OSError, ValueError) as error:
             st.warning(f"Could not read the peak stream: {error}")
@@ -374,7 +422,7 @@ with right_col:
             fbg_nm = run_fbg_tracker(wl, spectra_db, fbg_centers, 1.0)
             st.pyplot(fbg_figure(
                 x_axis, fbg_nm, fbg_labels, xlabel,
-                "Gaussian fits to the saved spectra",
+                "Gaussian fits to the saved spectra", voltage,
             ))
         except ValueError as error:
             st.warning(f"FBG tracking stopped: {error}")
