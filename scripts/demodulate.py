@@ -21,7 +21,6 @@ import glob
 import sys
 
 import numpy as np
-from scipy.signal import savgol_filter
 
 from fbgfp import io, peaks as fpeaks, track
 
@@ -37,39 +36,6 @@ def dominant_fringe_component(spectrum_db, step_nm, band):
         return float("nan"), float("nan")
     index = np.argmax(np.where(in_band, magnitude, 0.0))
     return freqs[index], 2.0 * magnitude[index] / linear.size
-
-
-def align_peaks(peak_data, spectra_timestamps, sg_order, sg_window, max_gap_s):
-    """One row of (filtered) FBG values per spectrum, NaN when no peak
-    sample lies within ``max_gap_s`` of the spectrum's timestamp."""
-    base = peak_data.timestamps[0]
-    peak_seconds = np.array(
-        [(t - base).total_seconds() for t in peak_data.timestamps]
-    )
-    columns, names = [], []
-    for ch_index, channel in enumerate(peak_data.channels):
-        window = min(sg_window, channel.shape[0] - (channel.shape[0] + 1) % 2)
-        window -= 1 - window % 2  # Savitzky-Golay windows must be odd
-        for peak_index in range(channel.shape[1]):
-            series = channel[:, peak_index]
-            if window > sg_order:
-                series = savgol_filter(series, window, sg_order)
-            columns.append(series)
-            names.append(f"CH{ch_index + 1}_peak{peak_index + 1}_nm")
-
-    rows = []
-    for stamp in spectra_timestamps:
-        seconds = (stamp - base).total_seconds()
-        nearest = int(np.clip(np.searchsorted(peak_seconds, seconds), 1, peak_seconds.size) - 1)
-        if nearest + 1 < peak_seconds.size and abs(peak_seconds[nearest + 1] - seconds) < abs(
-            peak_seconds[nearest] - seconds
-        ):
-            nearest += 1
-        if abs(peak_seconds[nearest] - seconds) > max_gap_s:
-            rows.append([float("nan")] * len(columns))
-        else:
-            rows.append([column[nearest] for column in columns])
-    return names, rows
 
 
 def main(argv=None):
@@ -130,7 +96,7 @@ def main(argv=None):
     peak_names, peak_rows = [], None
     if args.peaks:
         peak_data = io.read_peaks(args.peaks)
-        peak_names, peak_rows = align_peaks(
+        peak_names, peak_rows = io.align_peaks(
             peak_data, timestamps, args.sg_order, args.sg_window, args.max_gap
         )
 
