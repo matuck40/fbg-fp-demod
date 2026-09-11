@@ -35,6 +35,7 @@ SYNTH_REFERENCE_NM = 1540.0
 INTERNAL_FBG_NM = 1525.4
 STATIC_FBG_NM = 1554.8
 ORANGE = (1.0, 0.5, 0.0)  # the MATLAB's [1, 0.5, 0] window markers
+SG_ORDER, SG_WINDOW, MAX_GAP_S = 3, 75, 5.0  # as scripts/demodulate.py
 
 
 def derived_band(opd_nm, wavelength_nm):
@@ -80,7 +81,8 @@ def load_export(path, channel, max_spectra):
         (t - loaded.timestamps[0]).total_seconds() / 3600.0
         for t in loaded.timestamps
     ]
-    return loaded.wavelength_nm, loaded.spectra_db, np.array(hours)
+    return (loaded.wavelength_nm, loaded.spectra_db, np.array(hours),
+            loaded.timestamps)
 
 
 @st.cache_data(max_entries=16)
@@ -93,6 +95,15 @@ def run_tracker(wavelength_nm, spectra_db, band, reference_nm, trim):
         result.hop_frames,
         result.hop_fringes,
     )
+
+
+@st.cache_data(max_entries=4)
+def load_peak_stream(path, timestamps, sg_order, sg_window, max_gap_s):
+    """The instrument's own FBG tracking, married to the spectra's clock."""
+    names, rows = io.align_peaks(
+        io.read_peaks(path), timestamps, sg_order, sg_window, max_gap_s
+    )
+    return names, np.asarray(rows, dtype=float)
 
 
 @st.cache_data(max_entries=16)
@@ -204,14 +215,22 @@ def trajectory_figure(x, crest_nm, corrected_nm, hop_fringes, frame, xlabel):
     return fig
 
 
-def fbg_figure(x, fbg_nm, labels, xlabel):
-    """FBG Bragg shifts, each against its own first reading."""
+def fbg_figure(x, fbg_nm, labels, xlabel, source):
+    """FBG Bragg shifts, each against its own first reading.
+
+    ``source`` names where the numbers came from. The two origins are not
+    equivalent: the instrument's peak stream runs at full acquisition
+    rate, while the saved spectra are decimated and quantized to the
+    export grid, so fitting the FBGs in them is the poorer measurement.
+    The panel says which one is on screen rather than leaving the reader
+    to assume.
+    """
     palette = ("r", "b", "g", "m", "c", "y")
     fig, ax = plt.subplots(figsize=(8.5, 4.2), constrained_layout=True)
     for column, label in enumerate(labels):
         ax.plot(x, fbg_nm[:, column] - fbg_nm[0, column],
                 palette[column % len(palette)], lw=0.9, label=label)
-    ax.set_title("FBG shift vs time")
+    ax.set_title(f"FBG shift vs time — from {source}")
     ax.set_xlabel(xlabel)
     ax.set_ylabel("BraggWave(nm)")
     ax.grid(alpha=0.3)
@@ -246,6 +265,7 @@ if source == "Synthetic scenario":
     reference_nm = SYNTH_REFERENCE_NM
     fbg_centers = (INTERNAL_FBG_NM, STATIC_FBG_NM)
     fbg_labels = ("FBG Interna", "FBG Externa")
+    timestamps, peaks_path = None, ""
     st.sidebar.caption(f"Pass band from OPD: {band[0]:.4f}-{band[1]:.4f} cycles/nm")
 else:
     path = st.sidebar.text_input("Responses file path (stays on this machine)")
@@ -260,10 +280,17 @@ else:
         "Max spectra to load", 10, 10000, 300, 10,
         help="Large exports are read only up to this count.",
     )
+    peaks_path = st.sidebar.text_input(
+        "Peaks export path (optional)",
+        help="The instrument's own FBG tracking, at full acquisition rate. "
+             "This is the measurement of record for the FBGs: given it, the "
+             "panel below uses it instead of fitting the saved spectra.",
+    )
     fbg_text = st.sidebar.text_input(
         "FBG centres (nm, comma separated)",
-        help="Leave empty to skip the FBG panel. The interrogator's own "
-             "Peaks export is the measurement of record for these.",
+        help="Only used when no Peaks export is given: the FBGs are then "
+             "fitted in the saved spectra, which are decimated and quantized "
+             "to the export grid. Leave both empty to skip the FBG panel.",
     )
     fbg_centers, fbg_labels = (), ()
     if fbg_text.strip():
@@ -277,7 +304,9 @@ else:
                 "— e.g. one of your own recordings. It is read locally.")
         st.stop()
     try:
-        wl, spectra_db, time_axis = load_export(path, int(channel), int(max_spectra))
+        wl, spectra_db, time_axis, timestamps = load_export(
+            path, int(channel), int(max_spectra)
+        )
     except (OSError, ValueError) as error:
         st.error(f"Could not read the file: {error}")
         st.stop()
@@ -326,10 +355,27 @@ with right_col:
     st.pyplot(
         trajectory_figure(x_axis, crest_nm, corrected_nm, hop_fringes, frame, xlabel)
     )
-    if fbg_centers:
+    if peaks_path.strip():
+        try:
+            names, rows = load_peak_stream(
+                peaks_path, timestamps, SG_ORDER, SG_WINDOW, MAX_GAP_S
+            )
+            chosen = st.multiselect("Peaks to plot", names, default=list(names))
+            if chosen:
+                columns = [names.index(name) for name in chosen]
+                st.pyplot(fbg_figure(
+                    x_axis, rows[:, columns], chosen, xlabel,
+                    "the instrument peak stream",
+                ))
+        except (OSError, ValueError) as error:
+            st.warning(f"Could not read the peak stream: {error}")
+    elif fbg_centers:
         try:
             fbg_nm = run_fbg_tracker(wl, spectra_db, fbg_centers, 1.0)
-            st.pyplot(fbg_figure(x_axis, fbg_nm, fbg_labels, xlabel))
+            st.pyplot(fbg_figure(
+                x_axis, fbg_nm, fbg_labels, xlabel,
+                "Gaussian fits to the saved spectra",
+            ))
         except ValueError as error:
             st.warning(f"FBG tracking stopped: {error}")
 
