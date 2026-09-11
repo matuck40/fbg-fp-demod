@@ -92,12 +92,24 @@ which is why the FPI is demodulated spectrally here.
 
 ## App
 
-An optional pipeline viewer (Streamlit): the method one spectrum at a
-time — raw spectrum, FFT with the pass band marked, filtered fringe with
-the Gaussian crest fit, and the resulting trajectory — with a frame
-slider. Data source is either a synthetic scenario or a local ENLIGHT
-Responses export (read on your machine; nothing is uploaded). Installed
-only via the extra, so the core library stays numpy/scipy/matplotlib.
+An optional pipeline viewer (Streamlit), laid out as the original MATLAB
+drew it while it ran. Left column, one spectrum at a time: the normalized
+signal, its FFT with the pass band and the in-band peak starred, and the
+band-filtered fringe with the tracked crest picked out in red between its
+bracketing valleys. Right column, the same readings over time — in the
+same absolute nanometres the spectrum panel prints, so the two columns
+read as one measurement — and the FBG shifts beneath them. A frame slider
+steps through the sequence.
+
+Where the port goes beyond the MATLAB, the viewer says so: fringe hops,
+which the original left commented out, are unwrapped here, so at a hop the
+raw and unwrapped series are drawn together and the panel reports how many
+hops went up and down the axis. The MATLAB's voltage axis came from a
+potentiostat export rather than from the interrogator, and is left out.
+
+Data source is either a synthetic scenario or a local ENLIGHT Responses
+export (read on your machine; nothing is uploaded). Installed only via
+the extra, so the core library stays numpy/scipy/matplotlib.
 
 ```bash
 pip install -e ".[app]"

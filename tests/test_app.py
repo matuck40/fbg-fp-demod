@@ -143,10 +143,57 @@ def test_the_reading_shown_on_the_spectrum_is_plotted_on_the_trajectory():
         )
         trajectory = app.trajectory_figure(
             np.arange(n_frames), result.crest_nm, result.corrected_nm,
-            result.hop_frames, frame, "Frame",
+            result.hop_fringes, frame, "Frame",
         )
         plotted = _line_labelled(trajectory, "reading")
         assert plotted.get_ydata()[frame] == pytest.approx(reading_nm, abs=1e-9), (
             f"frame {frame}: panel 3 prints {reading_nm:.5f} nm but panel 4 "
             f"plots {plotted.get_ydata()[frame]:.5f} at that frame"
         )
+
+
+def test_the_hop_panel_reports_the_direction_the_tracked_fringe_went():
+    """The hop branch of the trajectory panel, which no other test reaches.
+
+    The counters are signed by where the tracked fringe moved along the
+    wavelength axis. Passing the hop *frames* in place of the signed
+    fringe counts flips the reported direction, and every earlier test
+    ran on a scenario with no hops at all, so nothing caught it.
+    """
+    app = _load_app_module()
+    n_frames, opd_nm = 40, 87_000.0
+    wl = synth.wavelength_axis()
+    sequence = synth.simulate_sequence(
+        wl,
+        opd_nm=opd_nm * (1.0 + np.linspace(0.0, 0.06, n_frames)),
+        fbg_centers_nm=np.column_stack(
+            [np.full(n_frames, 1525.4), np.full(n_frames, 1554.8)]
+        ),
+        noise_db=0.2, drift_amplitude_db=0.3, seed=0,
+    )
+    band = app.derived_band(opd_nm, wl)
+    result = track.track_fp(
+        sequence.spectra_db, wl, band, app.SYNTH_REFERENCE_NM, trim=0.1
+    )
+    assert result.hop_frames, "this scenario must hop for the test to mean anything"
+
+    # Here the tracker is handed down the axis at every hop; the counters
+    # must say so rather than reporting the opposite direction.
+    for i in result.hop_frames:
+        assert result.valley_nm[i] < result.valley_nm[i - 1]
+    assert all(n < 0 for n in result.hop_fringes)
+
+    figure = app.trajectory_figure(
+        np.arange(n_frames), result.crest_nm, result.corrected_nm,
+        result.hop_fringes, result.hop_frames[0], "Frame",
+    )
+    title = figure.axes[0].get_title()
+    assert f"{len(result.hop_fringes)} down the axis" in title, title
+    assert "0 up the axis" in title, title
+
+    # Once a hop has fired the unwrapped series is drawn, and it is the
+    # one without the one-fringe step.
+    unwrapped = _line_labelled(figure, "unwrapped")
+    assert np.abs(np.diff(unwrapped.get_ydata())).max() < 0.5 * np.abs(
+        np.diff(result.crest_nm)
+    ).max()

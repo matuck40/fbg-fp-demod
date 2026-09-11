@@ -1,7 +1,7 @@
 """Pipeline viewer for the fbg-fp-demod method.
 
 The page reproduces the display the original MATLAB drew while it ran
-(``FFT_FP_Aq_continua_V11_FFT_retangular.m``, subplot 3x2): on the left,
+(``FFT_FP_Aq_continua_V11_FFT_retangular.m``): on the left,
 one spectrum through the method — normalized signal, its FFT with the
 pass band and the in-band peak, and the band-filtered fringe with the
 tracked crest picked out in red; on the right, the trajectory the
@@ -121,7 +121,9 @@ def pipeline_figure(wl, spectrum_db, band, tracked_valley_nm, trim,
     axes[0].plot(wl, normalized, "k", lw=0.4)
     axes[0].set_title("Normalized signal")
     axes[0].set_xlabel("Wavelength (nm)")
-    axes[0].set_ylabel("Optical Loss (dB)")
+    # linearize returns min-max normalized linear power, not dB: the MATLAB
+    # kept its dB label here after normalizing, which this does not copy.
+    axes[0].set_ylabel("Normalized power (a.u.)")
 
     freqs = np.fft.rfftfreq(normalized.size, d=step_nm)
     amplitude = np.abs(np.fft.rfft(normalized - normalized.mean()))
@@ -164,7 +166,7 @@ def pipeline_figure(wl, spectrum_db, band, tracked_valley_nm, trim,
         f"Band-filtered signal, {counted}Actual reading: {crest.center:.5f}"
     )
     axes[2].set_xlabel("Wavelength (nm)")
-    axes[2].set_ylabel("Optical Loss (dB)")
+    axes[2].set_ylabel("Filtered amplitude (a.u.)")
     axes[2].legend(loc="lower left", fontsize=8)
     return fig, crest.center
 
@@ -175,6 +177,12 @@ def trajectory_figure(x, crest_nm, corrected_nm, hop_fringes, frame, xlabel):
     When the tracker has unwrapped a fringe hop the corrected series is
     drawn alongside: the raw reading is what the spectrum panel shows,
     the corrected one is what differences should be taken on.
+
+    ``hop_fringes`` is signed by where the tracked fringe went along the
+    wavelength axis, which is not what the MATLAB's "Jumps up/down"
+    counted — those counted the peak leaving the top or bottom of the
+    scan, and were dead code that always printed zero. The labels here
+    say which they are.
     """
     ups = sum(1 for n in hop_fringes if n > 0)
     downs = sum(1 for n in hop_fringes if n < 0)
@@ -182,12 +190,12 @@ def trajectory_figure(x, crest_nm, corrected_nm, hop_fringes, frame, xlabel):
     ax.plot(x, crest_nm, "k-", lw=0.9, label="reading (raw crest)")
     if hop_fringes:
         ax.plot(x, corrected_nm, "-", color="tab:blue", lw=0.9,
-                label="unwrapped (take differences on this)")
+                label="unwrapped (good to ~0.6 nm per hop)")
     ax.plot(x[frame], crest_nm[frame], "o", ms=9, mfc="none", mec="r", mew=1.6,
             label=f"this frame: {crest_nm[frame]:.5f} nm")
     ax.set_title(
-        f"Peak maximum vs time (Jumps up = {ups} . Jumps down = {downs}, "
-        f"Peak Record = {crest_nm[frame]:.3f})"
+        f"Peak maximum vs time (Fringe hops: {ups} up the axis . "
+        f"{downs} down the axis, Peak Record = {crest_nm[frame]:.3f})"
     )
     ax.set_xlabel(xlabel)
     ax.set_ylabel("CrestPosition(nm)")
@@ -198,10 +206,11 @@ def trajectory_figure(x, crest_nm, corrected_nm, hop_fringes, frame, xlabel):
 
 def fbg_figure(x, fbg_nm, labels, xlabel):
     """FBG Bragg shifts, each against its own first reading."""
+    palette = ("r", "b", "g", "m", "c", "y")
     fig, ax = plt.subplots(figsize=(8.5, 4.2), constrained_layout=True)
-    for column, (label, color) in enumerate(zip(labels, ("r", "b"))):
-        ax.plot(x, fbg_nm[:, column] - fbg_nm[0, column], color,
-                lw=0.9, label=label)
+    for column, label in enumerate(labels):
+        ax.plot(x, fbg_nm[:, column] - fbg_nm[0, column],
+                palette[column % len(palette)], lw=0.9, label=label)
     ax.set_title("FBG shift vs time")
     ax.set_xlabel(xlabel)
     ax.set_ylabel("BraggWave(nm)")
@@ -296,7 +305,9 @@ if frame in hop_frames:
     st.warning(
         f"Frame {frame} is a fringe hop: the tracker moved to a neighbouring "
         f"fringe, so the raw reading steps by about one fringe here. The "
-        f"unwrapped series is continuous across it."
+        f"unwrapped series absorbs that step, but only to within the valley "
+        f"spacing measured at the spectrum edge — around 0.6 nm per hop, far "
+        f"coarser than the picometre readings away from a hop."
     )
 
 left_col, right_col = st.columns(2)
