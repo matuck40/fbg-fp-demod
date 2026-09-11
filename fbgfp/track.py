@@ -117,7 +117,7 @@ def track_fbg(spectra_db, wavelength_nm, initial_centers_nm, *, window_nm=1.0):
                 )
             try:
                 fitted = fit.fit_gaussian(wavelength_nm[window], linear[window])
-            except RuntimeError as error:
+            except (RuntimeError, ValueError) as error:
                 raise ValueError(f"frame {i}, sensor {k}: {error}") from error
             if abs(fitted.center - center) >= window_nm / 2.0:
                 raise ValueError(

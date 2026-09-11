@@ -27,9 +27,20 @@ class GaussianFit:
 
 
 def fit_gaussian(x, y):
-    """Least-squares Gaussian fit over the given window."""
+    """Least-squares Gaussian fit over the given window.
+
+    A window holding fewer samples than the model has parameters is
+    rejected as a ValueError: ``curve_fit`` raises TypeError there, and
+    every caller up the chain treats a window it cannot use as a
+    ValueError, so the TypeError would surface as a crash instead.
+    """
     x = np.asarray(x, dtype=float)
     y = np.asarray(y, dtype=float)
+    if x.size < 4:
+        raise ValueError(
+            f"need at least 4 samples to fit a four-parameter Gaussian, "
+            f"got {x.size}"
+        )
     start = [y.max(), x.mean(), x.std(), y.min()]
     params, _ = curve_fit(gaussian, x, y, p0=start)
     return GaussianFit(*params)
