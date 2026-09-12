@@ -246,6 +246,14 @@ def align_peaks(peak_data, spectra_timestamps, sg_order, sg_window, max_gap_s):
     return names, rows
 
 
+def _number(cell):
+    """A decimal-comma cell as a float, or NaN when it holds no number."""
+    try:
+        return float(cell.replace(",", "."))
+    except ValueError:
+        return np.nan
+
+
 def read_potentiostat(path, *, dayfirst=True):
     """Read a BioLogic text export: tab separated, decimal commas.
 
@@ -257,8 +265,10 @@ def read_potentiostat(path, *, dayfirst=True):
     interrogator's for the same cell, and which no header declares.
     ``dayfirst`` says which to assume; a day above the twelfth anywhere in
     the file settles it regardless, since a month cannot be 13. Unnamed
-    columns are dropped, and rows that do not parse are skipped rather than
-    fatal, as in the peak reader.
+    columns are dropped. A row whose timestamp does not parse is skipped;
+    a cell that holds no number reads as NaN rather than costing its row,
+    so one stray entry in a column nobody reads cannot take a voltage with
+    it.
     """
     with _open_text(path) as handle:
         header = [name.strip() for name in handle.readline().rstrip("\n").split("\t")]
@@ -289,11 +299,10 @@ def read_potentiostat(path, *, dayfirst=True):
             continue
         try:
             stamp = datetime.strptime(row[time_col].strip(), stamp_format)
-            numbers = [float(row[i].replace(",", ".")) for i, _ in named]
         except ValueError:
             continue
         timestamps.append(stamp)
-        values.append(numbers)
+        values.append([_number(row[i]) for i, _ in named])
     if not timestamps:
         raise ValueError(f"{path}: no valid rows found")
 

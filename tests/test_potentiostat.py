@@ -140,3 +140,23 @@ def test_the_long_form_export_is_read_by_column_name(tmp_path):
     np.testing.assert_allclose(result.columns["Q charge/mA.h"], charges, atol=1e-12)
     assert "" not in result.columns
     assert "time/s" not in result.columns
+
+
+def test_an_unreadable_cell_costs_that_cell_not_the_row(tmp_path):
+    """A cell that is not a number becomes NaN; the row and its voltage stay.
+
+    Rejecting a whole row for one stray cell in a column nobody reads throws
+    its voltage away with it — and when that column is text on every row,
+    every row goes, leaving no record at all.
+    """
+    path = tmp_path / "cell.txt"
+    path.write_text(
+        "time/s\tEwe/V\tcomment\t\r\n"
+        "07/09/2026 11:27:03.0000\t3,1\tok\r\n"
+        "07/09/2026 11:27:05.0000\t3,2\t-\r\n",
+        encoding="latin-1",
+    )
+    result = io.read_potentiostat(path)
+    assert len(result.timestamps) == 2
+    np.testing.assert_allclose(result.columns["Ewe/V"], [3.1, 3.2])
+    assert np.isnan(result.columns["comment"]).all()
