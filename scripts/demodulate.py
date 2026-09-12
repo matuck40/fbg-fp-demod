@@ -9,6 +9,8 @@ FBGs — and everything is aligned on the spectra's timestamps.
 
 Usage:
     python scripts/demodulate.py "Responses*.txt" --peaks Peaks.txt -o out.csv
+    python scripts/demodulate.py "Responses*.txt" --peaks Peaks.txt \
+        --cell cell.txt --format matlab -o out.txt
 
 Output: one CSV row per spectrum with the elapsed time, the demodulated
 FPI wavelength, the dominant in-band fringe frequency and amplitude, one
@@ -20,6 +22,7 @@ import argparse
 import csv
 import glob
 import sys
+from datetime import datetime
 
 import numpy as np
 
@@ -52,6 +55,119 @@ def dominant_fringe_component(spectrum_db, step_nm, band):
     return freqs[index], 2.0 * magnitude[index] / linear.size
 
 
+def matlab_fringe_component(spectrum_db, step_nm, band):
+    """Frequency and amplitude of the in-band FFT peak, as the MATLAB wrote them.
+
+    Not the amplitude dominant_fringe_component reports. The MATLAB takes
+    the magnitude of the whole FFT of the normalized spectrum, DC bin
+    included, rescales it to [0, 1], and only then picks the largest
+    in-band bin — so its figure is a fraction of the DC term, and the two
+    cannot be compared across formats.
+    """
+    linear = fpeaks.linearize(spectrum_db)
+    magnitude = np.abs(np.fft.fft(linear))
+    span = magnitude.max() - magnitude.min()
+    amplitude = (magnitude - magnitude.min()) / span if span else np.zeros_like(magnitude)
+    freqs = np.fft.fftfreq(linear.size, d=step_nm)
+    in_band = (freqs >= band[0]) & (freqs <= band[1])
+    if not in_band.any():
+        return float("nan"), float("nan")
+    index = np.argmax(np.where(in_band, amplitude, -np.inf))
+    return freqs[index], amplitude[index]
+
+
+def _peak_channel(value):
+    """'ch3' or '3' -> 3: a 1-based Peaks channel, named as the MATLAB named it."""
+    try:
+        number = int(value.lower().removeprefix("ch"))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected a channel like ch3 or 3, got {value!r}")
+    if number < 1:
+        raise argparse.ArgumentTypeError(f"channels are 1-based, got {value!r}")
+    return number
+
+
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _matlab_number(value):
+    """%f as MATLAB's fprintf writes it, NaN included."""
+    return "NaN" if np.isnan(value) else f"{value:.6f}"
+
+
+def _write_csv(path, timestamps, fpi_nm, fringe, peak_names, peak_rows, electrical):
+    base = timestamps[0]
+    with open(path, "w", newline="") as handle:
+        writer = csv.writer(handle)
+        writer.writerow(
+            ["Time_s", "Timestamp", "FPI_Wavelength_nm", "Freq_FFT_cycles_per_nm",
+             "Amp_FFT"] + peak_names
+            + ([name for name, _, _ in ELECTRICAL] if electrical is not None else [])
+        )
+        for i, stamp in enumerate(timestamps):
+            row = [
+                f"{(stamp - base).total_seconds():.3f}",
+                stamp.isoformat(),
+                f"{fpi_nm[i]:.6f}",
+                f"{fringe[i][0]:.6f}",
+                f"{fringe[i][1]:.6e}",
+            ]
+            if peak_rows is not None:
+                row += [f"{value:.6f}" for value in peak_rows[i]]
+            if electrical is not None:
+                row += [f"{column[i]:.6f}" for column in electrical]
+            writer.writerow(row)
+
+
+def _write_matlab(path, args, timestamps, fpi_nm, fringe, peak_names, peak_rows,
+                  electrical):
+    """The original pipeline's text output: a header block, then tab-separated rows.
+
+    Names and column order follow the MATLAB. Its FBG groups are Peaks
+    channels chosen per experiment (--fbg-in, --fbg-out, --fbg-env); a group
+    whose channel carries no peaks keeps one NaN column, where the MATLAB
+    wrote the label but no values and shifted every later column left of
+    its header. The FPI column holds the unwrapped reading, which equals
+    the MATLAB's raw pico_x until a fringe hop fires — the MATLAB had no
+    unwrap, so past a hop its own column would have jumped by a fringe.
+    """
+    n = len(timestamps)
+    rows = None if peak_rows is None else np.asarray(peak_rows, dtype=float)
+    groups = []
+    for label, channel in (("FBG_in(nm)", args.fbg_in), ("FBG_out(nm)", args.fbg_out),
+                           ("FBG_env(nm)", args.fbg_env)):
+        wanted = [] if rows is None else [
+            j for j, name in enumerate(peak_names) if name.startswith(f"CH{channel}_")
+        ]
+        columns = [rows[:, j] for j in wanted] or [np.full(n, np.nan)]
+        groups += [(label, column) for column in columns]
+    if electrical is None:
+        electrical = [np.full(n, np.nan) for _ in ELECTRICAL]
+
+    header = (["Time(s)", "FPI_Wavelength(nm)"] + [label for label, _ in groups]
+              + ["Freq_FFT", "Amp_FFT"] + [name for _, name, _ in ELECTRICAL])
+    now = datetime.now()
+    lines = [
+        "FPI valley detection ",
+        f"Date:{now:%d}-{_MONTHS[now.month - 1]}-{now:%Y %H:%M:%S}",
+        f"Initial reference: {args.reference:.2f}",
+        f"Band-pass filter frequencies: {args.band[0]:f} {args.band[1]:f}",
+        " ",
+        " ",
+        "\t".join(header),
+    ]
+    base = timestamps[0]
+    for i, stamp in enumerate(timestamps):
+        values = ([(stamp - base).total_seconds(), fpi_nm[i]]
+                  + [column[i] for _, column in groups]
+                  + [fringe[i][0], fringe[i][1]]
+                  + [column[i] for column in electrical])
+        lines.append("\t".join(_matlab_number(v) for v in values))
+    with open(path, "w", newline="") as handle:
+        handle.write("\n".join(lines) + "\n")
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Demodulate interrogator exports into an optical time series."
@@ -76,7 +192,16 @@ def main(argv=None):
     parser.add_argument("--max-gap", type=float, default=5.0,
                         help="max seconds between a spectrum and its peak or cell "
                              "sample (default 5)")
-    parser.add_argument("-o", "--output", required=True, help="output CSV path")
+    parser.add_argument("--format", choices=("csv", "matlab"), default="csv",
+                        help="csv (default), or matlab: the original pipeline's "
+                             "tab-separated .txt layout")
+    parser.add_argument("--fbg-in", type=_peak_channel, default=1,
+                        help="Peaks channel of the MATLAB's FBG_in group (default ch1)")
+    parser.add_argument("--fbg-out", type=_peak_channel, default=3,
+                        help="Peaks channel of the MATLAB's FBG_out group (default ch3)")
+    parser.add_argument("--fbg-env", type=_peak_channel, default=4,
+                        help="Peaks channel of the MATLAB's FBG_env group (default ch4)")
+    parser.add_argument("-o", "--output", required=True, help="output path")
     args = parser.parse_args(argv)
 
     paths = sorted(p for pattern in args.responses for p in glob.glob(pattern) or [pattern])
@@ -108,7 +233,9 @@ def main(argv=None):
 
     result = track.track_fp(spectra, wavelength_nm, tuple(args.band), args.reference,
                             trim=args.trim)
-    fringe = [dominant_fringe_component(s, step_nm, args.band) for s in spectra]
+    component = (matlab_fringe_component if args.format == "matlab"
+                 else dominant_fringe_component)
+    fringe = [component(s, step_nm, args.band) for s in spectra]
 
     peak_names, peak_rows = [], None
     if args.peaks:
@@ -131,27 +258,12 @@ def main(argv=None):
             for _, _, source in ELECTRICAL
         ]
 
-    base = timestamps[0]
-    with open(args.output, "w", newline="") as handle:
-        writer = csv.writer(handle)
-        writer.writerow(
-            ["Time_s", "Timestamp", "FPI_Wavelength_nm", "Freq_FFT_cycles_per_nm",
-             "Amp_FFT"] + peak_names
-            + ([name for name, _, _ in ELECTRICAL] if electrical is not None else [])
-        )
-        for i, stamp in enumerate(timestamps):
-            row = [
-                f"{(stamp - base).total_seconds():.3f}",
-                stamp.isoformat(),
-                f"{result.corrected_nm[i]:.6f}",
-                f"{fringe[i][0]:.6f}",
-                f"{fringe[i][1]:.6e}",
-            ]
-            if peak_rows is not None:
-                row += [f"{value:.6f}" for value in peak_rows[i]]
-            if electrical is not None:
-                row += [f"{column[i]:.6f}" for column in electrical]
-            writer.writerow(row)
+    if args.format == "matlab":
+        _write_matlab(args.output, args, timestamps, result.corrected_nm, fringe,
+                      peak_names, peak_rows, electrical)
+    else:
+        _write_csv(args.output, timestamps, result.corrected_nm, fringe,
+                   peak_names, peak_rows, electrical)
 
     print(f"{len(timestamps)} spectra from {len(paths)} file(s) -> {args.output}")
     if result.hop_frames:
