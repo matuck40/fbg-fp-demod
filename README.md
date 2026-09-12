@@ -73,10 +73,18 @@ Measured on the synthetic benchmark (20 000-point spectra, 8 pm grid,
 Calibration sensitivities are library defaults and can be overridden per
 sensor pair — see `fbgfp/physics.py`.
 
-Beyond the synthetic benchmark, the port has been cross-checked against
-the original MATLAB implementation on 7 902 recorded spectra from the
-battery-cell experiments (43 h of cycling): agreement within 0.2 pm
-worst-case, 0.04 pm RMS. Those 43 h are not included here; the short
+Beyond the synthetic benchmark, `scripts/demodulate.py --format matlab`
+has been run over 7 902 recorded spectra from the battery-cell experiments
+(43 h of cycling) and compared column by column with the text file the
+original MATLAB wrote from the same exports. The header and all 7 902 rows
+line up. The FPI reading agrees within 0.17 pm worst-case (0.04 pm RMS) and
+the FBG positions within 0.35 pm; the fringe frequency, its amplitude and the
+five electrical columns are identical to the six decimals both write. The
+one row that differs is the first: the peak stream and the potentiostat start
+12 s after the first spectrum, so this port writes NaN there, where the
+MATLAB borrowed a sample 12 s away (see `--max-gap`). The run took 45 s and
+held about 4 GB in memory — the selected channel of every spectrum is kept
+until the output is written. Those 43 h are not included here; the short
 excerpt in `sample/` is a different, shorter window.
 
 ## Processing interrogator exports
