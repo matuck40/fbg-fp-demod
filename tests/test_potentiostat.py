@@ -97,3 +97,46 @@ def test_values_are_carried_onto_the_spectra_clock(tmp_path):
     assert np.isnan(aligned[-1]), "a spectrum outside the record must be NaN"
     assert np.all(np.isfinite(aligned[:3]))
     assert aligned[0] == pytest.approx(3.0, abs=1e-6)
+
+
+def write_full_export(path, timestamps, voltages, charges):
+    """The long-form export the MATLAB read: time/s near the end, after an
+    unnamed column, a header one field longer than its rows, month-first."""
+    header = "mode\tEwe/V\tI Range\tQ discharge/mA.h\tQ charge/mA.h\t\ttime/s\t"
+    lines = [header]
+    for stamp, voltage, charge in zip(timestamps, voltages, charges):
+        cells = [
+            "3",
+            ("%.7E" % voltage).replace(".", ","),
+            "14",
+            "0,000000000000000E+000",
+            ("%.15E" % charge).replace(".", ","),
+            "0",
+            stamp.strftime("%m/%d/%Y %H:%M:%S.%f")[:-2],
+        ]
+        lines.append("\t".join(cells))
+    path.write_text("\r\n".join(lines), encoding="latin-1")
+
+
+def test_the_long_form_export_is_read_by_column_name(tmp_path):
+    """The time column is found by its name, wherever the export puts it.
+
+    The short CCCV export leads with ``time/s``; the long-form one the
+    MATLAB read puts it twenty-third, after an unnamed column, under a
+    header one field longer than its rows. Reading by position sent every
+    row of that file to the reject pile.
+    """
+    stamps = [datetime(2025, 3, 22, 14, 24, 24, 419100) + timedelta(seconds=2 * i)
+              for i in range(4)]
+    voltages = [1.9640788, 1.9640788, 1.9640597, 2.2020700]
+    charges = [0.0, 0.0, 0.0, 2.5006520]
+    path = tmp_path / "Na Ion completo_CCCV_C01.txt"
+    write_full_export(path, stamps, voltages, charges)
+
+    result = io.read_potentiostat(path)
+
+    assert result.timestamps == stamps
+    np.testing.assert_allclose(result.columns["Ewe/V"], voltages, rtol=1e-7)
+    np.testing.assert_allclose(result.columns["Q charge/mA.h"], charges, atol=1e-12)
+    assert "" not in result.columns
+    assert "time/s" not in result.columns

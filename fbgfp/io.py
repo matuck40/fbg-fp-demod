@@ -247,25 +247,32 @@ def align_peaks(peak_data, spectra_timestamps, sg_order, sg_window, max_gap_s):
 
 
 def read_potentiostat(path, *, dayfirst=True):
-    """Read a BioLogic CCCV text export: tab separated, decimal commas.
+    """Read a BioLogic text export: tab separated, decimal commas.
 
-    The first column is headed ``time/s`` but carries a full timestamp, in
-    whatever locale the potentiostat was set to — which need not be the one
-    the interrogator used for the same cell, and which no header here
-    declares. ``dayfirst`` says which to assume; a day above the twelfth
-    anywhere in the file settles it regardless, since a month cannot be 13.
-    Rows that do not parse are skipped rather than fatal, as in the peak
-    reader.
+    The time column is found by its header, ``time/s``, not by position:
+    the short CCCV export leads with it, while the long-form export puts it
+    near the end, after an unnamed column, under a header one field longer
+    than its rows. Despite its name it carries a full timestamp, in
+    whatever locale the potentiostat was set to — which need not be the
+    interrogator's for the same cell, and which no header declares.
+    ``dayfirst`` says which to assume; a day above the twelfth anywhere in
+    the file settles it regardless, since a month cannot be 13. Unnamed
+    columns are dropped, and rows that do not parse are skipped rather than
+    fatal, as in the peak reader.
     """
     with _open_text(path) as handle:
-        names = [n.strip() for n in handle.readline().split("\t") if n.strip()]
+        header = [name.strip() for name in handle.readline().rstrip("\n").split("\t")]
         rows = [line.rstrip("\n").split("\t") for line in handle if line.strip()]
-    if not names:
-        raise ValueError(f"{path}: no column header")
+    if "time/s" not in header:
+        raise ValueError(f"{path}: no time/s column in the header")
+    time_col = header.index("time/s")
+    named = [(i, name) for i, name in enumerate(header) if name and i != time_col]
+    needed = max([time_col] + [i for i, _ in named])
 
-    stamps = [r[0].strip() for r in rows if r and "/" in r[0]]
-    for field in stamps:
-        parts = field.split("/")
+    for row in rows:
+        if len(row) <= time_col:
+            continue
+        parts = row[time_col].strip().split("/")
         if len(parts) < 2 or not parts[0].isdigit() or not parts[1].isdigit():
             continue
         if int(parts[0]) > 12:
@@ -278,11 +285,11 @@ def read_potentiostat(path, *, dayfirst=True):
 
     timestamps, values = [], []
     for row in rows:
-        if len(row) < len(names):
+        if len(row) <= needed:
             continue
         try:
-            stamp = datetime.strptime(row[0].strip(), stamp_format)
-            numbers = [float(c.replace(",", ".")) for c in row[1:len(names)]]
+            stamp = datetime.strptime(row[time_col].strip(), stamp_format)
+            numbers = [float(row[i].replace(",", ".")) for i, _ in named]
         except ValueError:
             continue
         timestamps.append(stamp)
@@ -290,8 +297,8 @@ def read_potentiostat(path, *, dayfirst=True):
     if not timestamps:
         raise ValueError(f"{path}: no valid rows found")
 
-    table = np.asarray(values, dtype=float)
-    columns = {name: table[:, i] for i, name in enumerate(names[1:])}
+    table = np.asarray(values, dtype=float).reshape(len(values), len(named))
+    columns = {name: table[:, j] for j, (_, name) in enumerate(named)}
     return Potentiostat(timestamps, columns)
 
 
