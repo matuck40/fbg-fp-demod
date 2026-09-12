@@ -79,10 +79,11 @@ has been run over 7 902 recorded spectra from the battery-cell experiments
 original MATLAB wrote from the same exports. The header and all 7 902 rows
 line up. The FPI reading agrees within 0.17 pm worst-case (0.04 pm RMS) and
 the FBG positions within 0.35 pm; the fringe frequency, its amplitude and the
-five electrical columns are identical to the six decimals both write. The
-one row that differs is the first: the peak stream and the potentiostat start
-12 s after the first spectrum, so this port writes NaN there, where the
-MATLAB borrowed a sample 12 s away (see `--max-gap`). The run took 45 s and
+five electrical columns are identical to the six decimals both write. With
+the default `--max-gap` the first row differs: the peak stream and the
+potentiostat start 12 s after the first spectrum, so this port writes NaN
+there, where the MATLAB borrowed a sample 12 s away. With `--max-gap inf`
+that row matches too. The run took 45 s and
 held about 4 GB in memory — the selected channel of every spectrum is kept
 until the output is written. Those 43 h are not included here; the short
 excerpt in `sample/` is a different, shorter window.
@@ -98,6 +99,12 @@ on the spectra's timestamps. Given a potentiostat export with `--cell`, the
 cell's voltage, current, charge, discharge and power ride on the same row. Both
 BioLogic text layouts are read, the short CCCV export and the long-form one;
 a column the export does not carry is written as NaN rather than guessed.
+Neither layout says whether its dates are day- or month-first: a day above
+the twelfth settles it, and otherwise `--cell-monthfirst` does — the long-form
+export the MATLAB read is month-first. A cell record that lands on none of the
+spectra is reported instead of written out as empty columns, and the peak and
+cell exports are read before the spectra, so a mistyped path fails at once
+rather than after the demodulation.
 
 ```bash
 python scripts/demodulate.py "Responses*.txt" --peaks Peaks.txt --cell cell.txt -o out.csv
@@ -119,9 +126,11 @@ Two output layouts:
 Where `--format matlab` departs from the MATLAB, on purpose: the FPI column
 holds the unwrapped reading, equal to the MATLAB's until a fringe hop fires;
 a spectrum with no peak or cell sample within `--max-gap` seconds gets NaN,
-where the MATLAB took the nearest sample however far away; and an FBG group
-whose channel has no peaks keeps one NaN column, where the MATLAB wrote the
-label without values and shifted every later column left of its header.
+where the MATLAB took the nearest sample however far away (`--max-gap inf`
+does the same); and an FBG group
+whose channel has no peaks keeps one NaN column — as the MATLAB did for the
+envelope group, while an empty internal or external channel would have
+stopped it on an indexing error.
 
 The FBGs come from the peak stream rather than the saved spectra on
 purpose: the stream runs at the instrument's full acquisition rate, while
