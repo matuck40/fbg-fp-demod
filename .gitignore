@@ -19,8 +19,10 @@ dist/
 .vscode/
 .idea/
 
-# Measured data never belongs here. This repository demonstrates the method on
-# synthetic spectra generated at run time by its own code.
+# Recorded data is published deliberately and in one place: sample/ carries a
+# short, gzipped excerpt of a real recording, small enough to clone and enough
+# to exercise the reader against the instrument's own format. Bulk recordings
+# and the binary formats below stay out.
 *.mat
 *.tdms
 *.h5
