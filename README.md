@@ -47,7 +47,10 @@ cross-sensitivity).
 | `fbgfp/fit.py` | Gaussian fits: sub-sample centres |
 | `fbgfp/track.py` | tracking across a sequence, fringe-hop unwrap |
 | `fbgfp/physics.py` | spectral shifts to pressure (bar) and temperature (°C) |
+| `fbgfp/io.py` | readers for the interrogator's Responses and Peaks exports and the potentiostat's, plain or gzipped, and alignment onto one clock |
 | `demo.py` | the full chain, truth vs recovered |
+| `scripts/demodulate.py` | the processing tool: exports in, CSV or MATLAB-layout text out |
+| `app/main.py` | the pipeline viewer (optional, Streamlit) |
 
 ## Accuracy, as asserted by the tests
 
@@ -78,15 +81,39 @@ excerpt in `sample/` is a different, shorter window.
 
 ## Processing interrogator exports
 
-`scripts/demodulate.py` is the processing tool: point it at ENLIGHT
-`Responses*.txt` exports (and optionally the instrument's `Peaks*.txt`
-stream) and it writes one CSV row per spectrum — demodulated FPI
-wavelength from the spectra, FBG positions from the peak stream
-(Savitzky-Golay filtered), aligned by timestamp. Optical signals only.
+`scripts/demodulate.py` is the processing tool, and the piece that stands in
+for the original MATLAB script. Point it at ENLIGHT `Responses*.txt` exports
+and it writes one row per spectrum: the demodulated FPI wavelength, the
+dominant in-band fringe frequency and amplitude, and — given the instrument's
+`Peaks*.txt` stream — the FBG positions, Savitzky-Golay filtered, all aligned
+on the spectra's timestamps. Given a potentiostat export with `--cell`, the
+cell's voltage, current, charge, discharge and power ride on the same row. Both
+BioLogic text layouts are read, the short CCCV export and the long-form one;
+a column the export does not carry is written as NaN rather than guessed.
 
 ```bash
-python scripts/demodulate.py "Responses*.txt" --peaks Peaks.txt -o out.csv
+python scripts/demodulate.py "Responses*.txt" --peaks Peaks.txt --cell cell.txt -o out.csv
 ```
+
+Two output layouts:
+
+- **CSV**, the default, with one column per Peaks channel and peak
+  (`CH3_peak2_nm`).
+- **`--format matlab`**, the original pipeline's tab-separated `.txt`: its
+  header block (date, initial reference, pass band), its column names and
+  order, the FBGs grouped as internal, external and envelope, and NaN spelled
+  as MATLAB spells it. The groups are Peaks channels chosen per experiment with
+  `--fbg-in`, `--fbg-out` and `--fbg-env`, defaulting to the original script's
+  `ch1`, `ch3` and `ch4`. `Amp_FFT` follows the MATLAB's own definition — the
+  in-band peak of the whole FFT magnitude rescaled to [0, 1] — so it is not
+  comparable with the CSV's amplitude.
+
+Where `--format matlab` departs from the MATLAB, on purpose: the FPI column
+holds the unwrapped reading, equal to the MATLAB's until a fringe hop fires;
+a spectrum with no peak or cell sample within `--max-gap` seconds gets NaN,
+where the MATLAB took the nearest sample however far away; and an FBG group
+whose channel has no peaks keeps one NaN column, where the MATLAB wrote the
+label without values and shifted every later column left of its header.
 
 The FBGs come from the peak stream rather than the saved spectra on
 purpose: the stream runs at the instrument's full acquisition rate, while
@@ -109,8 +136,8 @@ same minutes, and all three excerpts ship together:
 
 ```bash
 python scripts/demodulate.py sample/Responses.sample.txt.gz \
-    --peaks sample/Peaks.sample.txt.gz --channel 2 \
-    --band 0.155 0.185 --reference 1540.0 -o sample_out.csv
+    --peaks sample/Peaks.sample.txt.gz --cell sample/Cell.sample.txt.gz \
+    --channel 2 --band 0.155 0.185 --reference 1540.0 -o sample_out.csv
 ```
 
 Across it the cavity shortens by 3.9 nm — about 2.5 bar — with no fringe
@@ -137,12 +164,15 @@ steps through the sequence.
 Where the port goes beyond the MATLAB, the viewer says so: fringe hops,
 which the original left commented out, are unwrapped here, so at a hop the
 raw and unwrapped series are drawn together and the panel reports how many
-hops went up and down the axis. The MATLAB's voltage axis came from a
-potentiostat export rather than from the interrogator, and is left out.
+hops went up and down the axis. Given the potentiostat's export as well, the
+cell's voltage is drawn dashed on a right-hand axis of both trajectory panels,
+as the MATLAB drew it.
 
 Data source is either a synthetic scenario or a local ENLIGHT Responses
-export (read on your machine; nothing is uploaded) — `sample/` gets you
-started. Given a Peaks export as well, the FBG panel plots the
+export (read on your machine; nothing is uploaded). File mode opens on the
+recording in `sample/`, with the pass band and reference that cavity needs, so
+a fresh clone shows real data without typing a path. Given a Peaks export as
+well, the FBG panel plots the
 instrument's own peak tracking rather than fitting the saved spectra,
 which is the measurement of record for those sensors. Installed only via
 the extra, so the core library stays numpy/scipy/matplotlib.
