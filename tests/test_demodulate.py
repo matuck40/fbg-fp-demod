@@ -11,6 +11,7 @@ import pathlib
 from datetime import datetime, timedelta
 
 import numpy as np
+import pytest
 
 from fbgfp import synth
 
@@ -200,3 +201,91 @@ def test_the_cell_record_is_written_alongside_the_optical_columns(tmp_path):
     assert float(rows[0]["Power_W"]) == 0.0
     assert np.isnan(float(rows[0]["Q_Charge_mAh"]))
     assert np.isnan(float(rows[0]["Q_Discharge_mAh"]))
+
+
+def _quiet_responses(tmp_path, t0, n_frames=3, n_points=8192):
+    wl = synth.wavelength_axis(n_points=n_points)
+    blocks = np.stack(
+        [np.stack([synth.fp_spectrum(wl, 87_000.0)] * 4) for _ in range(n_frames)]
+    )
+    path = tmp_path / "Responses.synth.txt"
+    write_responses(path, [t0 + timedelta(seconds=20 * i) for i in range(n_frames)], blocks)
+    return path
+
+
+_BASIC = ["--channel", "1", "--reference", "1470"]
+
+
+@pytest.mark.parametrize("value", ["5", "0", "3_0", "ch 3", "ch"])
+def test_an_fbg_channel_outside_the_interrogator_is_refused(tmp_path, value):
+    """The interrogator has four channels; anything else is a typo.
+
+    Accepting it wrote a silent all-NaN group: 5 names no channel, and
+    Python's int() reads 3_0 as 30.
+    """
+    responses = _quiet_responses(tmp_path, datetime(2026, 9, 7, 17, 37, 3))
+    with pytest.raises(SystemExit):
+        _load_script().main([str(responses), *_BASIC, "--fbg-in", value,
+                             "-o", str(tmp_path / "out.csv")])
+
+
+def test_the_other_exports_are_checked_before_the_demodulation(tmp_path, monkeypatch):
+    """A mistyped --peaks or --cell path fails at once, not after the spectra.
+
+    A long recording takes far longer to demodulate than its peak stream or
+    cell record take to read, and nothing is written until the end, so a bad
+    path discovered last costs the whole run.
+    """
+    script = _load_script()
+
+    def demodulation(*args, **kwargs):
+        raise AssertionError("demodulated before the other inputs were read")
+
+    monkeypatch.setattr(script.track, "track_fp", demodulation)
+    responses = _quiet_responses(tmp_path, datetime(2026, 9, 7, 17, 37, 3))
+    for option in ("--peaks", "--cell"):
+        with pytest.raises(SystemExit, match="no such file"):
+            script.main([str(responses), *_BASIC, option, str(tmp_path / "missing.txt"),
+                         "-o", str(tmp_path / "out.csv")])
+
+
+def test_a_cell_export_that_is_not_one_is_refused_cleanly(tmp_path):
+    responses = _quiet_responses(tmp_path, datetime(2026, 9, 7, 17, 37, 3))
+    wrong = tmp_path / "Peaks.txt"
+    write_peaks(wrong, [datetime(2026, 9, 7, 17, 37, 3)], (1, 1, 2, 3), np.full((1, 7), 1525.0))
+    with pytest.raises(SystemExit, match="time/s"):
+        _load_script().main([str(responses), *_BASIC, "--cell", str(wrong),
+                             "-o", str(tmp_path / "out.csv")])
+
+
+def _ambiguous_cell(tmp_path, t0):
+    """A long-form cell export dated month-first with no day above twelve, so
+    the dates alone cannot tell which order they are in."""
+    from test_potentiostat import write_full_export
+
+    stamps = [t0 + timedelta(seconds=2 * k) for k in range(40)]
+    path = tmp_path / "cell.txt"
+    write_full_export(path, stamps, 3.0 + 0.01 * np.arange(40), np.zeros(40))
+    return path
+
+
+def test_month_first_cell_dates_can_be_declared(tmp_path):
+    t0 = datetime(2026, 3, 5, 10, 0, 0)
+    responses = _quiet_responses(tmp_path, t0)
+    out = tmp_path / "out.csv"
+    _load_script().main([str(responses), *_BASIC, "--cell", str(_ambiguous_cell(tmp_path, t0)),
+                         "--cell-monthfirst", "-o", str(out)])
+    with open(out) as f:
+        rows = list(csv.DictReader(f))
+    np.testing.assert_allclose([float(r["Voltage_V"]) for r in rows], [3.0, 3.1, 3.2], atol=1e-6)
+
+
+def test_a_cell_record_that_misses_every_spectrum_is_reported(tmp_path, capsys):
+    """Read in the wrong date order, a cell record lands months from the
+    spectra and every electrical column comes out NaN. Say so and name the
+    flag, rather than write empty columns and exit as if nothing happened."""
+    t0 = datetime(2026, 3, 5, 10, 0, 0)
+    responses = _quiet_responses(tmp_path, t0)
+    _load_script().main([str(responses), *_BASIC, "--cell", str(_ambiguous_cell(tmp_path, t0)),
+                         "-o", str(tmp_path / "out.csv")])
+    assert "--cell-monthfirst" in capsys.readouterr().err

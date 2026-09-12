@@ -1,26 +1,29 @@
-"""Demodulate interrogator exports into an optical time series.
+"""Demodulate interrogator exports into a time series, one row per spectrum.
 
-The Python counterpart of the original MATLAB processing script, optical
-signals only: the Fabry-Perot fringe is demodulated from the saved spectra
+The Python counterpart of the original MATLAB processing script: the
+Fabry-Perot fringe is demodulated from the saved spectra
 (``Responses*.txt``), the FBG positions are taken from the instrument's
 own peak stream (``Peaks*.txt``, Savitzky-Golay filtered) — the stream
 runs at full acquisition rate, so it is the measurement of record for the
-FBGs — and everything is aligned on the spectra's timestamps.
+FBGs — the cell's electrical record comes from the potentiostat's export,
+and everything is aligned on the spectra's timestamps.
 
 Usage:
     python scripts/demodulate.py "Responses*.txt" --peaks Peaks.txt -o out.csv
-    python scripts/demodulate.py "Responses*.txt" --peaks Peaks.txt \
+    python scripts/demodulate.py "Responses*.txt" --peaks Peaks.txt \\
         --cell cell.txt --format matlab -o out.txt
 
-Output: one CSV row per spectrum with the elapsed time, the demodulated
-FPI wavelength, the dominant in-band fringe frequency and amplitude, one
-column per FBG peak and, given a potentiostat export with ``--cell``, the
-cell's voltage, current, charge, discharge and power on the same row.
+Output: CSV by default, or with ``--format matlab`` the original pipeline's
+tab-separated text layout. Each row carries the elapsed time, the
+demodulated FPI wavelength, the dominant in-band fringe frequency and
+amplitude, the FBG positions and, given ``--cell``, the cell's voltage,
+current, charge, discharge and power.
 """
 
 import argparse
 import csv
 import glob
+import re
 import sys
 from datetime import datetime
 
@@ -43,8 +46,12 @@ ELECTRICAL = (
 
 
 def dominant_fringe_component(spectrum_db, step_nm, band):
-    """Frequency (cycles/nm) and amplitude of the strongest in-band FFT bin,
-    as the original pipeline recorded per spectrum."""
+    """Frequency (cycles/nm) and amplitude of the strongest in-band FFT bin.
+
+    The CSV's figure: a single-sided amplitude of the mean-removed spectrum.
+    The MATLAB recorded a different quantity under the same name — see
+    matlab_fringe_component — so the two layouts' Amp_FFT do not compare.
+    """
     linear = fpeaks.linearize(spectrum_db)
     freqs = np.fft.rfftfreq(linear.size, d=step_nm)
     magnitude = np.abs(np.fft.rfft(linear - linear.mean()))
@@ -77,14 +84,25 @@ def matlab_fringe_component(spectrum_db, step_nm, band):
 
 
 def _peak_channel(value):
-    """'ch3' or '3' -> 3: a 1-based Peaks channel, named as the MATLAB named it."""
+    """'ch3' or '3' -> 3: one of the interrogator's four Peaks channels, named
+    as the MATLAB named it. Anything else is refused rather than turned into
+    a silent all-NaN group."""
+    match = re.fullmatch(r"(?:ch)?([1-4])", value.strip().lower())
+    if not match:
+        raise argparse.ArgumentTypeError(
+            f"expected a Peaks channel ch1-ch4 (or 1-4), got {value!r}"
+        )
+    return int(match.group(1))
+
+
+def _read_export(kind, reader, path):
+    """Read a side export, turning a bad path or a wrong file into a message."""
     try:
-        number = int(value.lower().removeprefix("ch"))
-    except ValueError:
-        raise argparse.ArgumentTypeError(f"expected a channel like ch3 or 3, got {value!r}")
-    if number < 1:
-        raise argparse.ArgumentTypeError(f"channels are 1-based, got {value!r}")
-    return number
+        return reader(path)
+    except FileNotFoundError:
+        raise SystemExit(f"no such file: {path}")
+    except ValueError as error:
+        raise SystemExit(f"could not read {path} as a {kind} export: {error}")
 
 
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -126,11 +144,12 @@ def _write_matlab(path, args, timestamps, fpi_nm, fringe, peak_names, peak_rows,
 
     Names and column order follow the MATLAB. Its FBG groups are Peaks
     channels chosen per experiment (--fbg-in, --fbg-out, --fbg-env); a group
-    whose channel carries no peaks keeps one NaN column, where the MATLAB
-    wrote the label but no values and shifted every later column left of
-    its header. The FPI column holds the unwrapped reading, which equals
-    the MATLAB's raw pico_x until a fringe hop fires — the MATLAB had no
-    unwrap, so past a hop its own column would have jumped by a fringe.
+    whose channel carries no peaks keeps one NaN column, as the MATLAB did
+    for the envelope group — an empty internal or external channel would
+    have stopped it on an indexing error. The FPI column holds the unwrapped
+    reading, which equals the MATLAB's raw pico_x until a fringe hop fires —
+    the MATLAB had no unwrap, so past a hop its own column would have jumped
+    by a fringe.
     """
     n = len(timestamps)
     rows = None if peak_rows is None else np.asarray(peak_rows, dtype=float)
@@ -170,12 +189,17 @@ def _write_matlab(path, args, timestamps, fpi_nm, fringe, peak_names, peak_rows,
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
-        description="Demodulate interrogator exports into an optical time series."
+        description="Demodulate interrogator exports into a time series, "
+                    "one row per spectrum."
     )
     parser.add_argument("responses", nargs="+", help="Responses file(s) or glob pattern(s)")
     parser.add_argument("--peaks", help="Peaks export with the instrument's FBG tracking")
     parser.add_argument("--cell", help="potentiostat export (BioLogic text) for the "
                                        "electrical columns")
+    parser.add_argument("--cell-monthfirst", action="store_true",
+                        help="the cell export writes month-first dates, as the "
+                             "long-form BioLogic export does; otherwise day-first "
+                             "is assumed unless a day above 12 settles it")
     parser.add_argument("--channel", type=int, default=2,
                         help="1-based physical spectral channel carrying the FP fringe (default 2)")
     parser.add_argument("--band", type=float, nargs=2, default=(0.030, 0.042),
@@ -191,7 +215,8 @@ def main(argv=None):
                         help="Savitzky-Golay window for the peak stream (default 75)")
     parser.add_argument("--max-gap", type=float, default=5.0,
                         help="max seconds between a spectrum and its peak or cell "
-                             "sample (default 5)")
+                             "sample, NaN beyond it (default 5; inf takes the "
+                             "nearest sample however far, as the MATLAB did)")
     parser.add_argument("--format", choices=("csv", "matlab"), default="csv",
                         help="csv (default), or matlab: the original pipeline's "
                              "tab-separated .txt layout")
@@ -205,6 +230,18 @@ def main(argv=None):
     args = parser.parse_args(argv)
 
     paths = sorted(p for pattern in args.responses for p in glob.glob(pattern) or [pattern])
+
+    # The side exports are read before the spectra: a long recording takes
+    # far longer to demodulate than these take to read, and nothing is
+    # written until the end, so a bad path found last would cost the run.
+    peak_data = _read_export("Peaks", io.read_peaks, args.peaks) if args.peaks else None
+    cell = None
+    if args.cell:
+        cell = _read_export(
+            "cell",
+            lambda path: io.read_potentiostat(path, dayfirst=not args.cell_monthfirst),
+            args.cell,
+        )
 
     timestamps, spectra = [], []
     wavelength_nm = None
@@ -238,18 +275,13 @@ def main(argv=None):
     fringe = [component(s, step_nm, args.band) for s in spectra]
 
     peak_names, peak_rows = [], None
-    if args.peaks:
-        peak_data = io.read_peaks(args.peaks)
+    if peak_data is not None:
         peak_names, peak_rows = io.align_peaks(
             peak_data, timestamps, args.sg_order, args.sg_window, args.max_gap
         )
 
     electrical = None
-    if args.cell:
-        try:
-            cell = io.read_potentiostat(args.cell)
-        except FileNotFoundError:
-            raise SystemExit(f"no such file: {args.cell}")
+    if cell is not None:
         electrical = [
             io.align_series(cell.timestamps, cell.columns[source], timestamps,
                             max_gap_s=args.max_gap)
@@ -257,6 +289,19 @@ def main(argv=None):
             else np.full(len(timestamps), np.nan)
             for _, _, source in ELECTRICAL
         ]
+        if all(np.isnan(column).all() for column in electrical):
+            print(f"warning: the cell export overlaps none of these spectra within "
+                  f"--max-gap {args.max_gap:g} s, so every electrical column is NaN; "
+                  f"if its dates are month-first, pass --cell-monthfirst",
+                  file=sys.stderr)
+
+    if args.format == "matlab":
+        if peak_data is None:
+            print("warning: no --peaks export given; the FBG columns are written "
+                  "as NaN", file=sys.stderr)
+        if cell is None:
+            print("warning: no --cell export given; the electrical columns are "
+                  "written as NaN", file=sys.stderr)
 
     if args.format == "matlab":
         _write_matlab(args.output, args, timestamps, result.corrected_nm, fringe,

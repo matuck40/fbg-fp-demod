@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 
 import numpy as np
 
-from fbgfp import synth
+from fbgfp import io, synth
 from test_demodulate import _load_script
 from test_io import write_peaks, write_responses
 from test_potentiostat import write_potentiostat
@@ -20,21 +20,21 @@ from test_potentiostat import write_potentiostat
 T0 = datetime(2026, 9, 7, 17, 37, 3)
 
 
-def _responses(tmp_path, n_frames=3, n_points=8192):
+def _responses(tmp_path, n_frames=3, n_points=8192, t0=T0):
     wl = synth.wavelength_axis(n_points=n_points)
     blocks = np.stack(
         [np.stack([synth.fp_spectrum(wl, 87_000.0)] * 4) for _ in range(n_frames)]
     )
     path = tmp_path / "Responses.synth.txt"
-    write_responses(path, [T0 + timedelta(seconds=20 * i) for i in range(n_frames)],
+    write_responses(path, [t0 + timedelta(seconds=20 * i) for i in range(n_frames)],
                     blocks)
     return path
 
 
-def _run(tmp_path, *extra):
+def _run(tmp_path, *extra, t0=T0):
     out = tmp_path / "result.txt"
     _load_script().main(
-        [str(_responses(tmp_path)), "--channel", "1", "--reference", "1470",
+        [str(_responses(tmp_path, t0=t0)), "--channel", "1", "--reference", "1470",
          "--sg-window", "3", "--format", "matlab", "-o", str(out), *extra]
     )
     return out.read_text().split("\n")
@@ -86,9 +86,9 @@ def test_the_matlab_format_reproduces_the_original_layout(tmp_path):
 def test_an_empty_fbg_group_still_gets_its_column(tmp_path):
     """A channel with no peaks keeps one NaN column under its header.
 
-    The MATLAB wrote one label per group even when the channel was empty,
-    and then no values for it — shifting every later column one place left
-    of its header. Here the header and the values stay in step.
+    The MATLAB did the same for an empty envelope channel — one label, one
+    NaN — and would have stopped on an indexing error for an empty internal
+    or external one. Here every group behaves as the envelope did.
     """
     stamps = [T0 + timedelta(seconds=2 * k) for k in range(30)]
     write_peaks(tmp_path / "Peaks.txt", stamps, (0, 1, 2, 0),
@@ -103,3 +103,62 @@ def test_an_empty_fbg_group_still_gets_its_column(tmp_path):
     assert len(row) == len(header)
     assert header[2:6] == ["FBG_in(nm)", "FBG_out(nm)", "FBG_out(nm)", "FBG_env(nm)"]
     assert row[2:6] == ["NaN", "1530.800000", "1539.200000", "NaN"]
+
+
+def test_the_fft_columns_follow_the_matlab_definition(tmp_path):
+    """Freq_FFT and Amp_FFT, computed the MATLAB's way and compared exactly.
+
+    The expected figures follow the MATLAB line by line — fftshift, a
+    range-normalized magnitude with the DC bin in it, the shifted frequency
+    axis — rather than the port's fftfreq formulation. A port that drifted
+    to its CSV amplitude, dropped the min subtraction or lost the frequency
+    no longer matches.
+    """
+    lines = _run(tmp_path)
+    header, row = lines[6].split("\t"), lines[7].split("\t")
+    recorded = io.read_responses(tmp_path / "Responses.synth.txt", channel=1)
+    step = recorded.wavelength_nm[1] - recorded.wavelength_nm[0]
+    linear = 10.0 ** (recorded.spectra_db[0] / 10.0)
+    normalized = (linear - linear.min()) / (linear.max() - linear.min())
+    n = normalized.size
+    amplitude = np.abs(np.fft.fftshift(np.fft.fft(normalized)))
+    amplitude = (amplitude - amplitude.min()) / (amplitude.max() - amplitude.min())
+    shifted = (np.arange(n) - n // 2) * ((1.0 / step) / n)
+    band = np.flatnonzero((shifted >= 0.030) & (shifted <= 0.042))
+    peak = band[np.argmax(amplitude[band])]
+    assert row[header.index("Freq_FFT")] == f"{shifted[peak]:.6f}"
+    assert row[header.index("Amp_FFT")] == f"{amplitude[peak]:.6f}"
+
+
+def test_each_electrical_column_comes_from_its_own_source(tmp_path):
+    """Five distinct values in, each in its own column out.
+
+    With voltage the only non-zero figure in a test export, current and
+    power could trade sources, or charge and discharge, and still pass.
+    """
+    t0 = datetime(2026, 9, 17, 17, 37, 3)  # day 17: the order is unambiguous
+    lines = ["Ewe/V\t<I>/mA\tQ discharge/mA.h\tQ charge/mA.h\tPwe/W\t\ttime/s\t"]
+    for k in range(40):
+        stamp = t0 + timedelta(seconds=2 * k)
+        lines.append("\t".join([
+            "3,3000000E+000", "-6,400000000000000E+002", "7,250000000000000E+000",
+            "1,250000000000000E+001", "-2,1000000E+000", "0",
+            stamp.strftime("%m/%d/%Y %H:%M:%S.%f")[:-2],
+        ]))
+    (tmp_path / "cell.txt").write_text("\r\n".join(lines), encoding="latin-1")
+
+    out = _run(tmp_path, "--cell", str(tmp_path / "cell.txt"), t0=t0)
+    header, row = out[6].split("\t"), out[7].split("\t")
+    got = {name: row[header.index(name)] for name in
+           ("Voltage(V)", "Current(mA)", "Q_Charge(mAh)", "Q_Discharge(mAh)", "Power(W)")}
+    assert got == {"Voltage(V)": "3.300000", "Current(mA)": "-640.000000",
+                   "Q_Charge(mAh)": "12.500000", "Q_Discharge(mAh)": "7.250000",
+                   "Power(W)": "-2.100000"}
+
+
+def test_the_matlab_format_says_which_columns_it_could_not_fill(tmp_path, capsys):
+    """The MATLAB warned when it found no peak or potentiostat file and wrote
+    NaN columns; a silent file of NaN columns reads like a measurement."""
+    _run(tmp_path)
+    err = capsys.readouterr().err
+    assert "--peaks" in err and "--cell" in err
