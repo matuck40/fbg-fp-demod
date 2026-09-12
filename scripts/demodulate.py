@@ -11,8 +11,9 @@ Usage:
     python scripts/demodulate.py "Responses*.txt" --peaks Peaks.txt -o out.csv
 
 Output: one CSV row per spectrum with the elapsed time, the demodulated
-FPI wavelength, the dominant in-band fringe frequency and amplitude, and
-one column per FBG peak. No electrical data is read or written.
+FPI wavelength, the dominant in-band fringe frequency and amplitude, one
+column per FBG peak and, given a potentiostat export with ``--cell``, the
+cell's voltage, current, charge, discharge and power on the same row.
 """
 
 import argparse
@@ -23,6 +24,19 @@ import sys
 import numpy as np
 
 from fbgfp import io, peaks as fpeaks, track
+
+# The electrical columns the MATLAB wrote beside each spectrum: the name in
+# this script's CSV, the name in the MATLAB's text output, and the column
+# of the BioLogic export it is read from. A column the export lacks is
+# written as NaN — the short CCCV export has no separate charge and
+# discharge counters, and a guessed value would be worse than an empty one.
+ELECTRICAL = (
+    ("Voltage_V", "Voltage(V)", "Ewe/V"),
+    ("Current_mA", "Current(mA)", "<I>/mA"),
+    ("Q_Charge_mAh", "Q_Charge(mAh)", "Q charge/mA.h"),
+    ("Q_Discharge_mAh", "Q_Discharge(mAh)", "Q discharge/mA.h"),
+    ("Power_W", "Power(W)", "Pwe/W"),
+)
 
 
 def dominant_fringe_component(spectrum_db, step_nm, band):
@@ -44,6 +58,8 @@ def main(argv=None):
     )
     parser.add_argument("responses", nargs="+", help="Responses file(s) or glob pattern(s)")
     parser.add_argument("--peaks", help="Peaks export with the instrument's FBG tracking")
+    parser.add_argument("--cell", help="potentiostat export (BioLogic text) for the "
+                                       "electrical columns")
     parser.add_argument("--channel", type=int, default=2,
                         help="1-based physical spectral channel carrying the FP fringe (default 2)")
     parser.add_argument("--band", type=float, nargs=2, default=(0.030, 0.042),
@@ -58,7 +74,8 @@ def main(argv=None):
     parser.add_argument("--sg-window", type=int, default=75,
                         help="Savitzky-Golay window for the peak stream (default 75)")
     parser.add_argument("--max-gap", type=float, default=5.0,
-                        help="max seconds between a spectrum and its peak sample (default 5)")
+                        help="max seconds between a spectrum and its peak or cell "
+                             "sample (default 5)")
     parser.add_argument("-o", "--output", required=True, help="output CSV path")
     args = parser.parse_args(argv)
 
@@ -100,12 +117,27 @@ def main(argv=None):
             peak_data, timestamps, args.sg_order, args.sg_window, args.max_gap
         )
 
+    electrical = None
+    if args.cell:
+        try:
+            cell = io.read_potentiostat(args.cell)
+        except FileNotFoundError:
+            raise SystemExit(f"no such file: {args.cell}")
+        electrical = [
+            io.align_series(cell.timestamps, cell.columns[source], timestamps,
+                            max_gap_s=args.max_gap)
+            if source in cell.columns
+            else np.full(len(timestamps), np.nan)
+            for _, _, source in ELECTRICAL
+        ]
+
     base = timestamps[0]
     with open(args.output, "w", newline="") as handle:
         writer = csv.writer(handle)
         writer.writerow(
             ["Time_s", "Timestamp", "FPI_Wavelength_nm", "Freq_FFT_cycles_per_nm",
              "Amp_FFT"] + peak_names
+            + ([name for name, _, _ in ELECTRICAL] if electrical is not None else [])
         )
         for i, stamp in enumerate(timestamps):
             row = [
@@ -117,6 +149,8 @@ def main(argv=None):
             ]
             if peak_rows is not None:
                 row += [f"{value:.6f}" for value in peak_rows[i]]
+            if electrical is not None:
+                row += [f"{column[i]:.6f}" for column in electrical]
             writer.writerow(row)
 
     print(f"{len(timestamps)} spectra from {len(paths)} file(s) -> {args.output}")

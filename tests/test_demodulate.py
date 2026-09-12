@@ -158,3 +158,45 @@ def test_missing_file_gives_a_clean_error(tmp_path, capsys):
         _load_script().main(
             ["/nowhere/Responses*.txt", "-o", str(tmp_path / "out.csv")]
         )
+
+
+def test_the_cell_record_is_written_alongside_the_optical_columns(tmp_path):
+    """Given a potentiostat export, its electrical columns ride along.
+
+    The MATLAB wrote voltage, current, charge, discharge and power on the
+    same row as each spectrum. A column the export does not carry comes out
+    as NaN — the short CCCV export has no separate charge and discharge
+    counters, and a guessed value would be worse than an empty one.
+    """
+    from test_potentiostat import write_potentiostat
+
+    n_frames, n_points = 3, 8192
+    wl = synth.wavelength_axis(n_points=n_points)
+    blocks = np.stack(
+        [np.stack([synth.fp_spectrum(wl, 87_000.0)] * 4) for _ in range(n_frames)]
+    )
+    t0 = datetime(2026, 9, 7, 17, 37, 3)
+    write_responses(
+        tmp_path / "Responses.synth.txt",
+        [t0 + timedelta(seconds=20 * i) for i in range(n_frames)],
+        blocks,
+    )
+    # Potentiostat at 2 s cadence: the spectrum at 20 s * i meets sample 10 * i.
+    cell_stamps = [t0 + timedelta(seconds=2 * k) for k in range(40)]
+    write_potentiostat(tmp_path / "cell.txt", cell_stamps, 3.0 + 0.01 * np.arange(40))
+
+    out = tmp_path / "result.csv"
+    _load_script().main(
+        [str(tmp_path / "Responses.synth.txt"), "--cell", str(tmp_path / "cell.txt"),
+         "--channel", "1", "--reference", "1470", "-o", str(out)]
+    )
+    with open(out) as f:
+        rows = list(csv.DictReader(f))
+
+    np.testing.assert_allclose(
+        [float(r["Voltage_V"]) for r in rows], [3.0, 3.1, 3.2], atol=1e-6
+    )
+    assert float(rows[0]["Current_mA"]) == 0.0
+    assert float(rows[0]["Power_W"]) == 0.0
+    assert np.isnan(float(rows[0]["Q_Charge_mAh"]))
+    assert np.isnan(float(rows[0]["Q_Discharge_mAh"]))
