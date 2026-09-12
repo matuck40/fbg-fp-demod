@@ -22,6 +22,8 @@ anywhere), or a local ENLIGHT ``Responses*.txt`` export read with
 Run with ``streamlit run app/main.py`` (requires ``pip install .[app]``).
 """
 
+from pathlib import Path
+
 import matplotlib
 
 matplotlib.use("Agg")
@@ -36,6 +38,21 @@ INTERNAL_FBG_NM = 1525.4
 STATIC_FBG_NM = 1554.8
 ORANGE = (1.0, 0.5, 0.0)  # the MATLAB's [1, 0.5, 0] window markers
 SG_ORDER, SG_WINDOW, MAX_GAP_S = 3, 75, 5.0  # as scripts/demodulate.py
+
+# The recording shipped in sample/, and the settings it is read with. The
+# paths are resolved against this file rather than the working directory,
+# so a fresh clone opens on real data wherever streamlit was launched
+# from. The band brackets this cavity's fringe: 5.71 nm, or 0.175
+# cycles/nm — nowhere near the 87 um cavity the synthetic scenario uses.
+SAMPLE_DIR = Path(__file__).resolve().parent.parent / "sample"
+SAMPLE_CHANNEL, SAMPLE_REFERENCE_NM = 2, 1540.0
+SAMPLE_BAND = (0.155, 0.185)
+
+
+def _sample(name):
+    """The shipped sample's path, or empty when it is not there."""
+    path = SAMPLE_DIR / name
+    return str(path) if path.exists() else ""
 
 
 def derived_band(opd_nm, wavelength_nm):
@@ -300,12 +317,30 @@ if source == "Synthetic scenario":
     timestamps, peaks_path, cell_path = None, "", ""
     st.sidebar.caption(f"Pass band from OPD: {band[0]:.4f}-{band[1]:.4f} cycles/nm")
 else:
-    path = st.sidebar.text_input("Responses file path (stays on this machine)")
-    channel = st.sidebar.number_input("Spectral channel (1-based, physical)", 1, 8, 2)
-    reference_nm = st.sidebar.number_input("Tracking reference (nm)", value=1554.0)
+    path = st.sidebar.text_input(
+        "Responses file path (stays on this machine)",
+        value=_sample("Responses.sample.txt.gz"),
+        help="Prefilled with the recording shipped in sample/. Replace it "
+             "with one of your own; it is read on this machine and nothing "
+             "is uploaded.",
+    )
+    channel = st.sidebar.number_input(
+        "Spectral channel (1-based, physical)", 1, 8, SAMPLE_CHANNEL
+    )
+    reference_nm = st.sidebar.number_input(
+        "Tracking reference (nm)", value=SAMPLE_REFERENCE_NM,
+        help="Where the search starts. Only the first frame uses it; after "
+             "that the reference follows the valley just found.",
+    )
     band = (
-        st.sidebar.number_input("Band low (cycles/nm)", value=0.030, format="%.4f"),
-        st.sidebar.number_input("Band high (cycles/nm)", value=0.042, format="%.4f"),
+        st.sidebar.number_input("Band low (cycles/nm)", value=SAMPLE_BAND[0],
+                                format="%.4f"),
+        st.sidebar.number_input("Band high (cycles/nm)", value=SAMPLE_BAND[1],
+                                format="%.4f"),
+    )
+    st.sidebar.caption(
+        "The band must bracket the fringe frequency, OPD / wavelength^2. "
+        "A different cavity needs a different band."
     )
     trim = st.sidebar.slider("Gaussian fit trim", 0.0, 0.4, 0.1, 0.01)
     max_spectra = st.sidebar.number_input(
@@ -314,12 +349,14 @@ else:
     )
     peaks_path = st.sidebar.text_input(
         "Peaks export path (optional)",
+        value=_sample("Peaks.sample.txt.gz"),
         help="The instrument's own FBG tracking, at full acquisition rate. "
              "This is the measurement of record for the FBGs: given it, the "
              "panel below uses it instead of fitting the saved spectra.",
     )
     cell_path = st.sidebar.text_input(
         "Cell export path (optional)",
+        value=_sample("Cell.sample.txt.gz"),
         help="A potentiostat CCCV export. Its voltage is drawn over both "
              "panels on the right, as the original MATLAB did.",
     )

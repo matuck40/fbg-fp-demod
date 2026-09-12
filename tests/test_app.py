@@ -51,12 +51,30 @@ def test_app_reruns_cleanly_when_the_frame_changes():
     assert len(at.metric) >= 3
 
 
-def test_file_mode_without_a_path_shows_guidance():
+def test_file_mode_opens_on_the_shipped_sample():
+    """A fresh clone must show real data without anyone typing a path.
+
+    The sample lives at a path resolved from the app file, not from the
+    working directory, so it is found wherever streamlit was launched
+    from — and the band and reference default to the ones that cavity
+    needs, which are not the synthetic scenario's.
+    """
     at = _run_app()
     at.sidebar.radio[0].set_value("Interrogator file")
     at.run(timeout=120)
     assert not at.exception
-    assert at.info, "expected guidance to enter a file path"
+    assert not at.error, [e.value for e in at.error]
+    assert at.metric[0].value == "40", "expected the 40 shipped spectra"
+
+
+def test_file_mode_with_the_path_cleared_shows_guidance():
+    at = _run_app()
+    at.sidebar.radio[0].set_value("Interrogator file")
+    at.run(timeout=120)
+    at.sidebar.text_input[0].set_value("")
+    at.run(timeout=120)
+    assert not at.exception
+    assert at.info, "expected guidance once the path is emptied"
 
 
 def test_file_mode_reads_a_synthetic_export(tmp_path):
