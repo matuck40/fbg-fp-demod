@@ -73,7 +73,8 @@ sensor pair — see `fbgfp/physics.py`.
 Beyond the synthetic benchmark, the port has been cross-checked against
 the original MATLAB implementation on 7 902 recorded spectra from the
 battery-cell experiments (43 h of cycling): agreement within 0.2 pm
-worst-case, 0.04 pm RMS. The recorded data is not included.
+worst-case, 0.04 pm RMS. Those 43 h are not included here; the short
+excerpt in `sample/` is a different, shorter window.
 
 ## Processing interrogator exports
 
