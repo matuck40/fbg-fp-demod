@@ -6,7 +6,9 @@ them back, so the reader is exercised against the format, not against any
 recorded content.
 """
 
+import gzip
 from datetime import datetime, timedelta
+from pathlib import Path
 
 import numpy as np
 import pytest
@@ -18,13 +20,15 @@ def _comma(values, fmt="%.2f"):
     return "\t".join((fmt % v).replace(".", ",") for v in values)
 
 
-def write_responses(path, timestamps, blocks, start_nm=1460.0, step_nm=0.008):
+def write_responses(path, timestamps, blocks, start_nm=1460.0, step_nm=0.008,
+                    culture="pt-PT"):
     """Write an ENLIGHT-style Responses export: header, then blocks of
     [timestamp, one line per channel], blank line between blocks."""
     n_points = blocks.shape[2]
+    order = "%m/%d/%Y" if culture == "en-US" else "%d/%m/%Y"
     header = [
-        "Culture: pt-PT ",
-        f"Date: {timestamps[0].strftime('%d/%m/%Y %H:%M:%S.%f')[:-1]}",
+        f"Culture: {culture} ",
+        f"Date: {timestamps[0].strftime(order + ' %H:%M:%S.%f')[:-1]}",
         "Module Type: Hyperion",
         f"Wavelength Start (nm): {f'{start_nm:.5f}'.replace('.', ',')}",
         f"Wavelength Delta (nm): {f'{step_nm:.4f}'.replace('.', ',')}",
@@ -33,7 +37,7 @@ def write_responses(path, timestamps, blocks, start_nm=1460.0, step_nm=0.008):
     ]
     lines = [str(len(header) + 1)] + header
     for stamp, block in zip(timestamps, blocks, strict=False):
-        lines.append(stamp.strftime("%d/%m/%Y %H:%M:%S.%f")[:-1])
+        lines.append(stamp.strftime(order + " %H:%M:%S.%f")[:-1])
         for channel in block:
             lines.append(_comma(channel))
         lines.append("")
@@ -166,3 +170,83 @@ def test_read_responses_can_cap_the_number_of_spectra(tmp_path):
     result = io.read_responses(path, channel=1, max_spectra=2)
     assert result.spectra_db.shape[0] == 2
     assert result.timestamps == stamps[:2]
+
+
+def test_a_gzipped_export_reads_back_identically(tmp_path):
+    """Exports compress by roughly 7x; the reader should not care.
+
+    These files are text columns of numbers, so gzip takes a multi-gigabyte
+    export down to a fraction of its size — and takes a sample small enough
+    to ship with the source. Reading must give the same arrays either way.
+    """
+    stamps = [datetime(2026, 3, 24, 9, 39) + timedelta(seconds=20 * i) for i in range(3)]
+    wl = synth.wavelength_axis(n_points=4096)
+    blocks = np.stack(
+        [np.stack([synth.fp_spectrum(wl, 87_000.0 + 12.0 * i)] * 4) for i in range(3)]
+    )
+    plain = tmp_path / "Responses.plain.txt"
+    write_responses(plain, stamps, blocks)
+
+    packed = tmp_path / "Responses.packed.txt.gz"
+    packed.write_bytes(gzip.compress(plain.read_bytes(), 9))
+
+    from_plain = io.read_responses(plain, channel=2)
+    from_packed = io.read_responses(packed, channel=2)
+
+    np.testing.assert_allclose(from_packed.wavelength_nm, from_plain.wavelength_nm)
+    np.testing.assert_allclose(from_packed.spectra_db, from_plain.spectra_db)
+    assert from_packed.timestamps == from_plain.timestamps
+    assert packed.stat().st_size < 0.5 * plain.stat().st_size
+
+
+def test_a_gzipped_peaks_export_reads_back_identically(tmp_path):
+    stamps = [datetime(2026, 3, 24, 9, 39) + timedelta(seconds=2 * i) for i in range(5)]
+    counts = (1, 1, 2, 3)
+    values = 1525.0 + np.random.default_rng(2).random((5, 7))
+    plain = tmp_path / "Peaks.plain.txt"
+    write_peaks(plain, stamps, counts, values)
+    packed = tmp_path / "Peaks.packed.txt.gz"
+    packed.write_bytes(gzip.compress(plain.read_bytes(), 9))
+
+    from_plain, from_packed = io.read_peaks(plain), io.read_peaks(packed)
+    assert from_packed.timestamps == from_plain.timestamps
+    assert from_packed.counts == from_plain.counts
+    for packed_channel, plain_channel in zip(
+        from_packed.channels, from_plain.channels, strict=True
+    ):
+        np.testing.assert_allclose(packed_channel, plain_channel)
+
+
+def test_an_en_us_export_is_not_read_with_the_day_and_month_swapped():
+    """The instrument writes dates in whatever locale it was set to.
+
+    ``9/7/2026`` is 7 September in the en-US export the instrument writes
+    with ``Culture: en-US``, and 9 July if read day-first. The two orders
+    are indistinguishable for the first twelve days of any month, so
+    guessing wrong does not fail — it silently returns the wrong date,
+    and any alignment against another recording quietly slides by months.
+    """
+    from tempfile import TemporaryDirectory
+
+    stamps = [datetime(2026, 9, 7, 11, 27, 3) + timedelta(seconds=20 * i)
+              for i in range(2)]
+    _, blocks = _synthetic_blocks(n_frames=2, n_points=512)
+    with TemporaryDirectory() as folder:
+        path = Path(folder) / "Responses.en-US.txt"
+        write_responses(path, stamps, blocks, culture="en-US")
+        recovered = io.read_responses(path, channel=1)
+    assert recovered.timestamps == stamps
+    assert recovered.timestamps[0].month == 9, "read as July: day/month swapped"
+
+
+def test_a_pt_pt_export_still_reads_day_first():
+    from tempfile import TemporaryDirectory
+
+    stamps = [datetime(2026, 9, 7, 11, 27, 3) + timedelta(seconds=20 * i)
+              for i in range(2)]
+    _, blocks = _synthetic_blocks(n_frames=2, n_points=512)
+    with TemporaryDirectory() as folder:
+        path = Path(folder) / "Responses.pt-PT.txt"
+        write_responses(path, stamps, blocks, culture="pt-PT")
+        recovered = io.read_responses(path, channel=1)
+    assert recovered.timestamps == stamps

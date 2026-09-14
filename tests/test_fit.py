@@ -127,3 +127,16 @@ def test_fringe_crest_regression_pins_the_ported_method():
     wl = synth.wavelength_axis()
     center = _crest_from_single_spectrum(synth.fp_spectrum(wl, OPD_NM), wl, REFERENCE_NM)
     assert center == pytest.approx(1581.8038, abs=0.001)
+
+
+def test_a_window_too_narrow_to_fit_is_rejected_as_a_value_error():
+    """Fewer samples than parameters must not surface as a TypeError.
+
+    ``curve_fit`` raises TypeError when the window holds fewer points than
+    the model has parameters. Callers up the chain — the trackers, and the
+    viewer above them — treat a lost peak as ValueError, so leaking the
+    TypeError turns a recoverable "this window is unusable" into a crash.
+    """
+    x = np.array([1550.0, 1550.008, 1550.016])
+    with pytest.raises(ValueError, match="at least 4 samples"):
+        fit.fit_gaussian(x, np.array([0.1, 0.5, 0.2]))
