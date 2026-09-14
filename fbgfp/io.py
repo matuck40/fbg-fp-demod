@@ -86,7 +86,7 @@ def _open_text(path):
         compressed = probe.read(2) == b"\x1f\x8b"
     if compressed:
         return gzip.open(path, "rt", encoding="latin-1")
-    return open(path, "r", encoding="latin-1")
+    return open(path, encoding="latin-1")
 
 
 def _parse_header_value(line):

@@ -16,8 +16,9 @@ import pytest
 
 st_testing = pytest.importorskip("streamlit.testing.v1")
 
-from fbgfp import synth, track  # noqa: E402
 from test_io import write_responses  # noqa: E402
+
+from fbgfp import synth, track  # noqa: E402
 
 APP_PATH = Path(__file__).resolve().parent.parent / "app" / "main.py"
 
@@ -132,7 +133,7 @@ def _line_labelled(fig, fragment):
                 return line
     raise AssertionError(
         f"no line labelled {fragment!r}; found "
-        f"{[l.get_label() for a in fig.axes for l in a.get_lines()]}"
+        f"{[line.get_label() for axis in fig.axes for line in axis.get_lines()]}"
     )
 
 

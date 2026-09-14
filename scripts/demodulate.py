@@ -29,7 +29,8 @@ from datetime import datetime
 
 import numpy as np
 
-from fbgfp import io, peaks as fpeaks, track
+from fbgfp import io, track
+from fbgfp import peaks as fpeaks
 
 # The electrical columns the MATLAB wrote beside each spectrum: the name in
 # this script's CSV, the name in the MATLAB's text output, and the column
@@ -100,9 +101,11 @@ def _read_export(kind, reader, path):
     try:
         return reader(path)
     except FileNotFoundError:
-        raise SystemExit(f"no such file: {path}")
+        raise SystemExit(f"no such file: {path}") from None
     except ValueError as error:
-        raise SystemExit(f"could not read {path} as a {kind} export: {error}")
+        raise SystemExit(
+            f"could not read {path} as a {kind} export: {error}"
+        ) from None
 
 
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -252,7 +255,7 @@ def main(argv=None):
             raise SystemExit(
                 f"no such file: {path} — check the path (glob patterns must "
                 "be quoted so the shell does not expand them)"
-            )
+            ) from None
         if wavelength_nm is None:
             wavelength_nm = loaded.wavelength_nm
         elif not np.array_equal(loaded.wavelength_nm, wavelength_nm):
@@ -264,7 +267,7 @@ def main(argv=None):
     spectra = np.vstack(spectra)
     step_nm = wavelength_nm[1] - wavelength_nm[0]
 
-    if any(b < a for a, b in zip(timestamps, timestamps[1:])):
+    if any(b < a for a, b in zip(timestamps, timestamps[1:], strict=False)):
         print("warning: spectra are not in chronological order; "
               "check the input file ordering", file=sys.stderr)
 

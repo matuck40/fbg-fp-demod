@@ -11,11 +11,11 @@ import re
 from datetime import datetime, timedelta
 
 import numpy as np
-
-from fbgfp import io, synth
 from test_demodulate import _load_script
 from test_io import write_peaks, write_responses
 from test_potentiostat import write_potentiostat
+
+from fbgfp import io, synth
 
 T0 = datetime(2026, 9, 7, 17, 37, 3)
 

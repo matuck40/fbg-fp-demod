@@ -1,5 +1,7 @@
 # fbg-fp-demod
 
+![tests](https://github.com/matuck40/fbg-fp-demod/actions/workflows/tests.yml/badge.svg)
+
 Peak-tracking demodulation for Fabry-Perot and fibre Bragg grating (FBG)
 sensors, operating on recorded interrogator spectra. Python port of the MATLAB pipeline that
 made it possible to measure pressure variation inside sealed commercial
@@ -47,10 +49,10 @@ cross-sensitivity).
 | `fbgfp/fit.py` | Gaussian fits: sub-sample centres |
 | `fbgfp/track.py` | tracking across a sequence, fringe-hop unwrap |
 | `fbgfp/physics.py` | spectral shifts to pressure (bar) and temperature (°C) |
-| `fbgfp/io.py` | readers for the interrogator's Responses and Peaks exports and the potentiostat's, plain or gzipped, and alignment onto one clock |
+| `fbgfp/io.py` | readers for the interrogator's `Responses` (spectra) and `Peaks` (peak stream) text exports and the potentiostat's, plain or gzipped, and alignment onto one clock |
 | `demo.py` | the full chain, truth vs recovered |
-| `scripts/demodulate.py` | the processing tool: exports in, CSV or MATLAB-layout text out |
-| `app/main.py` | the pipeline viewer (optional, Streamlit) |
+| `scripts/demodulate.py` | CLI: FPI demodulated from `Responses` spectra, FBGs from the `Peaks` stream (Savitzky-Golay filtered), the cell's electrical record from the potentiostat's export, one row per spectrum as CSV or in the MATLAB's own text layout |
+| `app/main.py` | Streamlit viewer: one spectrum at a time — normalized signal, FFT with pass band, filtered fringe with crest fit — beside the trajectory and the FBG shifts, from a synthetic scenario or a local `Responses` export |
 
 ## Accuracy, as asserted by the tests
 
@@ -73,20 +75,23 @@ Measured on the synthetic benchmark (20 000-point spectra, 8 pm grid,
 Calibration sensitivities are library defaults and can be overridden per
 sensor pair — see `fbgfp/physics.py`.
 
-Beyond the synthetic benchmark, `scripts/demodulate.py --format matlab`
-has been run over 7 902 recorded spectra from the battery-cell experiments
-(43 h of cycling) and compared column by column with the text file the
-original MATLAB wrote from the same exports. The header and all 7 902 rows
-line up. The FPI reading agrees within 0.17 pm worst-case (0.04 pm RMS) and
-the FBG positions within 0.35 pm; the fringe frequency, its amplitude and the
-five electrical columns are identical to the six decimals both write. With
-the default `--max-gap` the first row differs: the peak stream and the
-potentiostat start 12 s after the first spectrum, so this port writes NaN
-there, where the MATLAB borrowed a sample 12 s away. With `--max-gap inf`
-that row matches too. The run took 45 s and
-held about 4 GB in memory — the selected channel of every spectrum is kept
-until the output is written. Those 43 h are not included here; the short
-excerpt in `sample/` is a different, shorter window.
+Beyond the synthetic benchmark, the port was cross-checked against the
+original MATLAB implementation on 7 902 recorded spectra from the
+battery-cell experiments (43 h of cycling). Since `--format matlab` writes
+the MATLAB's own file, the two were compared column by column: the headers
+and all 7 902 rows line up, the FPI reading agrees within 0.17 pm worst-case
+(0.04 pm RMS) and the FBG positions within 0.35 pm, and the fringe frequency,
+its amplitude and the five electrical columns are identical to the six
+decimals both write. With the default `--max-gap` the first row differs — the
+peak stream and the potentiostat start 12 s after the first spectrum, so this
+port writes NaN there where the MATLAB borrowed a sample 12 s away — and with
+`--max-gap inf` it matches too. The run took 45 s and held about 4 GB, the
+selected channel of every spectrum being kept until the output is written.
+
+That comparison was done outside this repository, on measurement data that is
+not included here: neither those 43 h nor the MATLAB output compared against
+ship, so it cannot be reproduced from what is here. Only the synthetic checks
+above can. The short excerpt in `sample/` is a different, shorter window.
 
 ## Processing interrogator exports
 

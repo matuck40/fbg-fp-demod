@@ -7,7 +7,6 @@ against files written in the exporter's format.
 """
 
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import numpy as np
 import pytest
@@ -21,11 +20,11 @@ def write_potentiostat(path, timestamps, voltages, dayfirst=True):
     """Write a BioLogic-style CCCV export: tab separated, decimal commas."""
     order = "%d/%m/%Y" if dayfirst else "%m/%d/%Y"
     lines = [COLUMNS]
-    for stamp, voltage in zip(timestamps, voltages):
+    for stamp, voltage in zip(timestamps, voltages, strict=True):
         cells = [
             stamp.strftime(order + " %H:%M:%S.%f")[:-2],
             "0,000000000000000E+000",
-            ("%.7E" % voltage).replace(".", ","),
+            f"{voltage:.7E}".replace(".", ","),
             "0,0000000E+000",
             "0,000000000000000E+000",
             "0,000000000000000E+000",
@@ -104,13 +103,13 @@ def write_full_export(path, timestamps, voltages, charges):
     unnamed column, a header one field longer than its rows, month-first."""
     header = "mode\tEwe/V\tI Range\tQ discharge/mA.h\tQ charge/mA.h\t\ttime/s\t"
     lines = [header]
-    for stamp, voltage, charge in zip(timestamps, voltages, charges):
+    for stamp, voltage, charge in zip(timestamps, voltages, charges, strict=True):
         cells = [
             "3",
-            ("%.7E" % voltage).replace(".", ","),
+            f"{voltage:.7E}".replace(".", ","),
             "14",
             "0,000000000000000E+000",
-            ("%.15E" % charge).replace(".", ","),
+            f"{charge:.15E}".replace(".", ","),
             "0",
             stamp.strftime("%m/%d/%Y %H:%M:%S.%f")[:-2],
         ]
