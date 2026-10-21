@@ -52,7 +52,7 @@ cross-sensitivity).
 | `fbgfp/io.py` | readers for the interrogator's `Responses` (spectra) and `Peaks` (peak stream) text exports and the potentiostat's, plain or gzipped, and alignment onto one clock |
 | `demo.py` | the full chain, truth vs recovered |
 | `scripts/demodulate.py` | CLI: FPI demodulated from `Responses` spectra, FBGs from the `Peaks` stream (Savitzky-Golay filtered), the cell's electrical record from the potentiostat's export, one row per spectrum as CSV or in the MATLAB's own text layout |
-| `app/main.py` | Streamlit viewer: one spectrum at a time, with normalized signal, FFT with pass band and filtered fringe with crest fit, beside the trajectory and the FBG shifts, from a synthetic scenario or a local `Responses` export |
+| `app/main.py` | Streamlit viewer: one spectrum at a time, showing the normalized signal, the FFT with its pass band and the filtered fringe with its crest fit, beside the trajectory and the FBG shifts, from a synthetic scenario or a local `Responses` export |
 
 ## Accuracy, as asserted by the tests
 
@@ -124,7 +124,7 @@ Two output layouts:
   order, the FBGs grouped as internal, external and envelope, and NaN spelled
   as MATLAB spells it. The groups are Peaks channels chosen per experiment with
   `--fbg-in`, `--fbg-out` and `--fbg-env`, defaulting to the original script's
-  `ch1`, `ch3` and `ch4`. `Amp_FFT` follows the MATLAB's own definition, the
+  `ch1`, `ch3` and `ch4`. `Amp_FFT` follows the MATLAB's own definition: the
   in-band peak of the whole FFT magnitude rescaled to [0, 1], so it is not
   comparable with the CSV's amplitude.
 
@@ -162,7 +162,7 @@ python scripts/demodulate.py sample/Responses.sample.txt.gz \
     --channel 2 --band 0.155 0.185 --reference 1540.0 -o sample_out.csv
 ```
 
-Across it the cavity shortens by 3.9 nm, about 2.5 bar, with no fringe
+Across it the cavity shortens by 3.9 nm, equivalent to about 2.5 bar, with no fringe
 hop, while the cell relaxes from 2.5 V to 3.4 V and the FBGs cool by
 roughly 150 pm. There is no ground truth here, so it is not what the
 accuracy figures above are measured on; it is what the readers and the
@@ -180,7 +180,7 @@ signal, its FFT with the pass band and the in-band peak starred, and the
 band-filtered fringe with the tracked crest picked out in red between its
 bracketing valleys. Right column, the same readings over time, in the
 same absolute nanometres the spectrum panel prints, so the two columns
-read as one measurement, and the FBG shifts beneath them. A frame slider
+read as one measurement, with the FBG shifts beneath them. A frame slider
 steps through the sequence.
 
 Where the port goes beyond the MATLAB, the viewer says so: fringe hops,
